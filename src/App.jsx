@@ -2916,7 +2916,7 @@ export default function BKMApp() {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#07060A", display:"flex", alignItems:"center", justifyContent:"center", padding:"20px 0", fontFamily:"'DM Sans',sans-serif" }}>
+    <div style={{ width:"100vw", height:"100vh", height:"100dvh", background:c.bg, display:"flex", flexDirection:"column", fontFamily:"'DM Sans',sans-serif", overflow:"hidden" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Noto+Naskh Arabic:wght@400;500;600&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
@@ -2936,7 +2936,7 @@ export default function BKMApp() {
         @keyframes slideDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
 
-      <div style={{ width:375, height:812, background:c.bg, borderRadius:44, overflow:"hidden", boxShadow:"0 0 0 1.5px #1C1208, 0 44px 88px rgba(0,0,0,0.7)", display:"flex", flexDirection:"column", transition:"background 0.35s ease", opacity:fading?0:1 }}>
+      <div style={{ width:"100%", height:"100%", background:c.bg, display:"flex", flexDirection:"column", transition:"background 0.35s ease", opacity:fading?0:1, overflow:"hidden" }}>
 
       {/* ── Toast notifications ── */}
       {toasts.length > 0 && (
