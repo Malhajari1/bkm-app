@@ -959,11 +959,6 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
         {/* Subject */}
         <p style={{ fontSize:13, fontWeight:500, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.55, margin:"0 0 11px 0" }}>{deal.subject}</p>
 
-        {/* Image */}
-        <div style={{ borderRadius:12, overflow:"hidden", marginBottom:11 }}>
-          <img src={deal.img} alt="" style={{ width:"100%", height:110, objectFit:"cover", display:"block" }} onError={e=>e.target.style.display="none"}/>
-        </div>
-
         {/* Reveal / revealed */}
         {!claimed ? (
           <div style={{ marginBottom:11 }}>
@@ -2221,11 +2216,6 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
             </div>
           </div>
 
-          {/* Image */}
-          <div style={{ borderRadius:14, overflow:"hidden", marginBottom:12 }}>
-            <img src={deal.img} alt="" style={{ width:"100%", height:180, objectFit:"cover", display:"block" }} onError={e=>e.target.style.display="none"}/>
-          </div>
-
           {/* Full subject */}
           <p style={{ fontSize:15, fontWeight:500, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, marginBottom:16 }}>{deal.subject}</p>
 
@@ -2961,11 +2951,6 @@ export default function BKMApp() {
           ))}
         </div>
       )}
-        <div style={{ height:50, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 28px", flexShrink:0 }}>
-          <span style={{ fontSize:12, fontWeight:600, color:c.sub }}>9:41</span>
-          <div style={{ width:110, height:28, background:c.surface, borderRadius:20, border:`1px solid ${c.border}` }}/>
-          <span style={{ fontSize:11, color:c.sub }}>●●●</span>
-        </div>
 
         {/* Progress dots for auth screens */}
         {/* Progress dots for auth/setup screens */}
