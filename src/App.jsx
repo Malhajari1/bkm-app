@@ -6,10 +6,17 @@ import React, { useState, useEffect, useRef } from "react";
 const SESSION = {
   loggedIn:false, locPerm:"pending", hasLoc:"", revealsCount:0,
   tutorialSeen:false, claimed:new Set(), tosAccepted:false,
-  profileSetup:false, username:"", avatar:"77", isAdmin:false,
-  isFounder:false, // only true if entered via DEV bypass
-  interests:[], // from top 10 onboarding
+  profileSetup:false, username:"", avatar:"a1", isAdmin:false,
+  isFounder:false,
+  isMerchant:false, merchantName:"", merchantCategory:"",
+  interests:[],
+  following:new Set(), // userIds the current user follows
+  feedFilter:"foryou", // "foryou" or "following"
 };
+
+// Shared mutable lists (in production: Firestore collections)
+const PARTNER_REQUESTS = [];   // partner inquiry submissions
+const MERCHANT_LISTINGS = [];  // products posted by merchants
 
 // Current logged-in user — set at login time, not hardcoded
 let CURRENT_USER = null;
@@ -17,7 +24,7 @@ let CURRENT_USER = null;
 const getMe = () => CURRENT_USER || ME;
 
 // ── Taken usernames (in production: Firestore query) ──
-const TAKEN_USERNAMES = ["swiss","dealhunterq","pearlfrinds","dohadeals_","lusaillooks","newhunter99","admin","bkm","founder","official","moderator","support","help","doha","qatar"];
+const TAKEN_USERNAMES = ["swiss","dealhunterq","pearlfinds","dohadeals_","lusaillooks","newhunter99","admin","bkm","founder","official","moderator","support","help","doha","qatar","merchant","merchants","partner","partners","staff","team"];
 
 // ── Beta tester badge tiers (based on signup order) ──
 const BETA_TIERS = [
@@ -42,11 +49,11 @@ const getBetaBadge = (userId) => {
 const getPostBanner = (deal) => {
   const ratio = deal.ups / Math.max(1, deal.ups + deal.downs);
   const claims = deal.claims;
-  if (deal.user.founder)              return { label:"FOUNDER",  grad:"linear-gradient(90deg,#1D6FEB,#56B0FF)", text:"#FFFFFF" };
-  if (deal.user.rank===4 && ratio>0.9) return { label:"ELITE PICK",grad:"linear-gradient(90deg,#8B0038,#C9892A,#FFD700)", text:"#FFFFFF" };
-  if (claims>300 && ratio>0.85)        return { label:"🔥 TRENDING",grad:"linear-gradient(90deg,#FF6B35,#FF3B00)", text:"#FFFFFF" };
-  if (claims>100 && ratio>0.85)        return { label:"HOT",      grad:"linear-gradient(90deg,#8B0038,#C9892A)", text:"#FFFFFF" };
-  if (deal.verified && ratio>0.9)      return { label:"✓ TRUSTED", grad:`linear-gradient(90deg,#16A34A,#059669)`, text:"#FFFFFF" };
+  if (deal.user.founder)               return { label:"FOUNDER",    grad:"linear-gradient(90deg,#1D6FEB,#56B0FF)" };
+  if (deal.user.rank===4 && ratio>0.9) return { label:"ELITE PICK", grad:"linear-gradient(90deg,#8B0038,#C9892A,#FFD700)" };
+  if (claims>300 && ratio>0.85)        return { label:"TRENDING",   grad:"linear-gradient(90deg,#FF6B35,#FFB347)" };
+  if (claims>100 && ratio>0.85)        return { label:"HOT",        grad:"linear-gradient(90deg,#8B0038,#D4A24C)" };
+  if (deal.verified && ratio>0.9)      return { label:"TRUSTED",    grad:"linear-gradient(90deg,#16A34A,#34D399)" };
   return null;
 };
 const BAD_WORDS = [
@@ -271,15 +278,55 @@ function TagMark({ size=80, fill, holeBg }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COLOR AVATAR — generated from username, no external images
+// ─────────────────────────────────────────────────────────────────────────────
+const AVATAR_PALETTE = [
+  { bg:"#8B0038", fg:"#FFFFFF" },
+  { bg:"#1D6FEB", fg:"#FFFFFF" },
+  { bg:"#16A34A", fg:"#FFFFFF" },
+  { bg:"#F59E0B", fg:"#1C1208" },
+  { bg:"#7C3AED", fg:"#FFFFFF" },
+  { bg:"#EC4899", fg:"#FFFFFF" },
+  { bg:"#0EA5E9", fg:"#FFFFFF" },
+  { bg:"#84CC16", fg:"#1C1208" },
+  { bg:"#F97316", fg:"#FFFFFF" },
+  { bg:"#06B6D4", fg:"#FFFFFF" },
+  { bg:"#A855F7", fg:"#FFFFFF" },
+  { bg:"#DC2626", fg:"#FFFFFF" },
+];
+const colorFromSeed = (seed) => {
+  const s = String(seed||"X");
+  let h=0; for (let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) | 0;
+  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
+};
+const initialFrom = (str) => (String(str||"?").trim()[0] || "?").toUpperCase();
+
+function ColorAvatar({ user, size=38 }) {
+  const seed = user?.av || user?.username || "X";
+  const col  = colorFromSeed(seed);
+  const init = initialFrom(user?.username);
+  return (
+    <div style={{ width:size, height:size, borderRadius:"50%", background:col.bg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>
+      <span style={{ fontSize:size*0.42, fontWeight:800, color:col.fg, lineHeight:1 }}>{init}</span>
+    </div>
+  );
+}
+
 // Avatar with rank ring + founder badge
 function Avatar({ user, size=38 }) {
   const isFounder = user?.founder;
   const ringBg = isFounder
     ? "linear-gradient(135deg,#1D6FEB,#56B0FF)"
     : getRingStyle(user.rank).background;
+  const seed = user?.av || user?.username || "X";
+  const col  = (typeof colorFromSeed === "function") ? colorFromSeed(seed) : { bg:"#8B0038", fg:"#FFFFFF" };
+  const init = (user?.username||"?").trim()[0]?.toUpperCase() || "?";
   return (
     <div style={{ width:size+4, height:size+4, borderRadius:"50%", padding:2, background:ringBg, flexShrink:0, position:"relative" }}>
-      <img src={`https://picsum.photos/seed/av${user.av}/${size}/${size}`} alt="" style={{ width:size, height:size, borderRadius:"50%", display:"block", objectFit:"cover" }} onError={e=>{e.target.style.background="#2A1808";}}/>
+      <div style={{ width:size, height:size, borderRadius:"50%", background:col.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <span style={{ fontSize:size*0.42, fontWeight:800, color:col.fg, fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{init}</span>
+      </div>
       {isFounder && (
         <div style={{ position:"absolute", bottom:-1, right:-1, width:Math.max(13,size*0.34), height:Math.max(13,size*0.34), borderRadius:"50%", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", border:"2px solid #07060A", display:"flex", alignItems:"center", justifyContent:"center" }}>
           <svg width="7" height="7" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
@@ -336,14 +383,13 @@ function RankCard({ tier=0, children, c, founder=false, hasTopBanner=false }) {
 
 // Category icon
 function CatIcon({ cat, color, size=20 }) {
-  const s = { stroke:color, strokeWidth:"1.8", strokeLinecap:"round", strokeLinejoin:"round", fill:"none" };
   const icons = {
-    food:        <><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 002-2V2" {...s}/><line x1="7" y1="2" x2="7" y2="22" {...s}/><path d="M21 15V2a5 5 0 00-5 5v6c0 1.1.9 2 2 2h3zm0 0v7" {...s}/></>,
-    groceries:   <><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6L18 2H6z" {...s}/><line x1="3" y1="6" x2="21" y2="6" {...s}/><path d="M16 10a4 4 0 01-8 0" {...s}/></>,
-    stores:      <><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" {...s}/><path d="M9 22V12h6v10" {...s}/></>,
-    electronics: <><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" {...s}/></>,
-    flowers:     <><circle cx="12" cy="12" r="3" {...s}/><path d="M12 2a4 4 0 014 4 4 4 0 01-4 4 4 4 0 01-4-4 4 4 0 014-4M12 16a4 4 0 014 4 4 4 0 01-4 4 4 4 0 01-4-4 4 4 0 014-4M2 12a4 4 0 014-4 4 4 0 014 4 4 4 0 01-4 4 4 4 0 01-4-4M16 12a4 4 0 014-4 4 4 0 014 4 4 4 0 01-4 4 4 4 0 01-4-4" {...s}/></>,
-    pharmacies:  <><rect x="3" y="3" width="18" height="18" rx="2" {...s}/><line x1="12" y1="8" x2="12" y2="16" {...s}/><line x1="8" y1="12" x2="16" y2="12" {...s}/></>,
+    food:        <><path d="M4 14a8 8 0 0116 0z" fill={color}/><rect x="2" y="14" width="20" height="3" rx="1" fill={color}/><circle cx="12" cy="6" r="1.5" fill={color}/><rect x="11" y="6.5" width="2" height="3" fill={color}/></>,
+    groceries:   <><path d="M5 7h14l-1.4 13H6.4z" fill={color}/><path d="M9 7V5a3 3 0 016 0v2h-2V5a1 1 0 00-2 0v2H9z" fill={color}/></>,
+    stores:      <><path d="M3 9l2-5h14l2 5v3H3z" fill={color}/><path d="M3 12v9h6v-6h6v6h6v-9z" fill={color}/></>,
+    electronics: <polygon points="13 2 4 14 11 14 10 22 20 10 13 10" fill={color}/>,
+    flowers:     <><path d="M12 12c-3 0-5-2-5-5 0-2 1-4 2-5 1 2 2 3 3 5 1-2 2-3 3-5 1 1 2 3 2 5 0 3-2 5-5 5z" fill={color}/><path d="M11 12h2v9h-2z" fill={color}/><path d="M13 16c2 0 4-1 5-3-3 0-5 1-5 3z" fill={color}/><path d="M11 18c-2 0-4-1-5-3 3 0 5 1 5 3z" fill={color}/></>,
+    pharmacies:  <><rect x="4" y="4" width="16" height="16" rx="3" fill={color}/><rect x="11" y="7" width="2" height="10" fill="#FFFFFF" fillOpacity="0.9"/><rect x="7" y="11" width="10" height="2" fill="#FFFFFF" fillOpacity="0.9"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none">{icons[cat]||null}</svg>;
 }
@@ -382,8 +428,8 @@ const inp = (c) => ({ width:"100%", padding:"15px 16px", background:c.inputBg, c
 // ─────────────────────────────────────────────────────────────────────────────
 // OPENING
 // ─────────────────────────────────────────────────────────────────────────────
-function Opening({ onStart, onLogin, onDev, themeMode, setThemeMode, theme, lang, setLang }) {
-  const [on, setOn]         = useState(false);
+function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode, theme, lang, setLang }) {
+  const [on, setOn]                     = useState(false);
   const [showDevInput, setShowDevInput] = useState(false);
   const [devCode, setDevCode]           = useState("");
   const [devError, setDevError]         = useState(false);
@@ -406,20 +452,24 @@ function Opening({ onStart, onLogin, onDev, themeMode, setThemeMode, theme, lang
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"space-between", padding:"64px 28px 40px" }}>
       <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14 }}>
-        <div style={a(0.08)}><TagMark size={84} fill={c.text} holeBg={c.bg}/></div>
-        <div style={{ ...a(0.16), display:"flex", alignItems:"baseline", gap:8 }}>
-          <span style={{ fontSize:48, fontWeight:700, color:c.text, letterSpacing:"-0.04em", fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>BKM</span>
-          <span style={{ fontSize:19, color:c.accent, fontFamily:"'Noto Naskh Arabic',serif", fontWeight:500 }}>بكم</span>
+        <div style={{ ...a(0.06) }}>
+          <TagMark size={80} fill={c.text} holeBg={c.bg}/>
+        </div>
+        <div style={{ ...a(0.12), display:"flex", alignItems:"baseline", gap:8 }}>
+          <span style={{ fontSize:46, fontWeight:800, color:c.text, letterSpacing:"-0.04em", fontFamily:"'DM Sans',sans-serif" }}>BKM</span>
+          <span style={{ fontSize:22, color:c.accent, fontFamily:"'Noto Naskh Arabic',serif" }}>بكم</span>
+        </div>
+        <div style={{ ...a(0.16), fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.05em", textAlign:"center", maxWidth:260, lineHeight:1.5 }}>
+          {lang==="ar"?"نحن نقوم بذلك حتى لا تضطر أنت":"We do it so you don't have to."}
         </div>
       </div>
+
       <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:10 }}>
-        {/* Language */}
         <div style={{ ...a(0.22), display:"flex", borderRadius:14, overflow:"hidden", border:`1px solid ${c.border}` }}>
           {[{k:"en",label:"English",ff:"'DM Sans',sans-serif"},{k:"ar",label:"العربية",ff:"'Noto Naskh Arabic',serif"}].map((l,i)=>(
             <button key={l.k} onClick={()=>setLang(l.k)} style={{ flex:1, padding:"15px 0", background:lang===l.k?c.btnBg:c.inputBg, color:lang===l.k?c.btnText:c.sub, border:"none", borderRight:i===0?`1px solid ${c.border}`:"none", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:l.ff, transition:"all 0.2s" }}>{l.label}</button>
           ))}
         </div>
-        {/* Theme */}
         <div style={{ ...a(0.26), display:"flex", borderRadius:14, overflow:"hidden", border:`1px solid ${c.border}` }}>
           {[
             {k:"dark",  el:<Ico.Moon s={15} c={themeMode==="dark" ?TH[theme].btnText:TH[theme].sub}/>},
@@ -429,32 +479,56 @@ function Opening({ onStart, onLogin, onDev, themeMode, setThemeMode, theme, lang
             <button key={t.k} onClick={()=>setThemeMode(t.k)} style={{ flex:1, padding:"15px 0", background:themeMode===t.k?c.btnBg:c.inputBg, border:"none", borderRight:i<2?`1px solid ${c.border}`:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s" }}>{t.el}</button>
           ))}
         </div>
-        {/* Get Started */}
+
         <div style={a(0.30)}><Btn onClick={onStart} theme={theme}>{lang==="ar"?"ابدأ الآن":"Get Started"}</Btn></div>
-        {/* Sign in */}
-        <div style={{ ...a(0.33), textAlign:"center" }}>
+
+        {/* Merchant sign-in */}
+        <div style={{ ...a(0.32) }}>
+          <button onClick={onMerchant} style={{ width:"100%", padding:"13px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:14, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18v10a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path d="M3 9l2-5h14l2 5"/><line x1="12" y1="14" x2="12" y2="17"/></svg>
+            {lang==="ar"?"دخول التاجر":"Merchant Sign In"}
+          </button>
+        </div>
+
+        <div style={{ ...a(0.34), textAlign:"center" }}>
           <button onClick={onLogin} style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
             {lang==="ar"?"لديك حساب؟ ":"Already have an account? "}<span style={{ color:c.accent, fontWeight:700 }}>{lang==="ar"?"تسجيل الدخول":"Sign in"}</span>
           </button>
         </div>
-        {/* Dev skip — code gated */}
-        <div style={{ ...a(0.36), textAlign:"center" }}>
+
+        <div style={{ ...a(0.38), textAlign:"center", position:"relative" }}>
           {!showDevInput ? (
             <button onClick={()=>setShowDevInput(true)} style={{ background:"none", border:`1px dashed ${c.border}`, borderRadius:10, padding:"8px 20px", cursor:"pointer", fontSize:11, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
               DEV
             </button>
           ) : (
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <input
-                autoFocus
-                value={devCode}
-                onChange={e=>setDevCode(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&handleDevSubmit()}
-                placeholder="Enter dev code"
-                style={{ ...inp(c), flex:1, padding:"10px 14px", fontSize:13, borderColor:devError?c.accent:c.inputBorder, animation:devError?"shakeX 0.4s ease both":"none" }}
-              />
-              <button onClick={handleDevSubmit} style={{ background:c.accent, border:"none", borderRadius:12, padding:"10px 14px", cursor:"pointer", fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>Go</button>
-              <button onClick={()=>{setShowDevInput(false);setDevCode("");}} style={{ background:"none", border:`1px solid ${c.border}`, borderRadius:12, padding:"10px 12px", cursor:"pointer", fontSize:13, color:c.sub }}>✕</button>
+            <div style={{ display:"flex", flexDirection:"column", gap:10, animation:"fu 0.25s ease both", position:"relative" }}>
+              <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.12em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>Enter 4-digit code</div>
+              <label style={{ display:"flex", gap:8, justifyContent:"center", animation:devError?"shakeX 0.4s ease both":"none", cursor:"text" }}>
+                {[0,1,2,3].map(i=>(
+                  <div key={i} style={{ width:48, height:56, borderRadius:12, border:`1.5px solid ${devError?c.accent:devCode.length===i?c.accent:c.inputBorder}`, background:c.inputBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", transition:"border-color 0.15s" }}>
+                    {devCode[i] ? "•" : ""}
+                  </div>
+                ))}
+                <input
+                  autoFocus
+                  value={devCode}
+                  onChange={e=>{
+                    const v = e.target.value.replace(/\D/g,"").slice(0,4);
+                    setDevCode(v);
+                    if (v.length===4) setTimeout(()=>{
+                      if (v === DEV_CODE) { SESSION.isAdmin = true; onDev(); }
+                      else { setDevError(true); setDevCode(""); setTimeout(()=>setDevError(false), 1200); }
+                    }, 150);
+                  }}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  type="tel"
+                  maxLength={4}
+                  style={{ position:"absolute", opacity:0, top:0, left:0, width:"100%", height:"100%", border:"none", fontSize:16 }}
+                />
+              </label>
+              <button onClick={()=>{setShowDevInput(false);setDevCode("");setDevError(false);}} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:4, padding:"6px", position:"relative", zIndex:2 }}>Cancel</button>
             </div>
           )}
           {devError && <div style={{ fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", marginTop:6 }}>Wrong code</div>}
@@ -463,6 +537,7 @@ function Opening({ onStart, onLogin, onDev, themeMode, setThemeMode, theme, lang
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ONBOARDING — Full-screen Top 10 interest ranking poll
@@ -475,102 +550,109 @@ const ALL_INTERESTS = [
 ];
 
 function Onboarding({ theme, onComplete }) {
-  const [ranked, setRanked]       = useState([]);
-  const [newlyAdded, setNewlyAdded] = useState(null); // track for entry animation
-  const [dragIdx, setDragIdx]     = useState(null);
-  const [dragOver, setDragOver]   = useState(null);
-  const touchRef                  = useRef({});
-  const rowRefs                   = useRef([]);
+  const [ranked, setRanked]         = useState([]);
+  const [tappedChip, setTappedChip] = useState(null);
+  const [dragIdx, setDragIdx]       = useState(null);
+  const [dragOffset, setDragOffset] = useState(0); // Y offset from drag start
+  const [hoverIdx, setHoverIdx]     = useState(null);
+  const dragStartY                  = useRef(0);
+  const rowRefs                     = useRef([]);
+  const containerRef                = useRef(null);
   const c = TH[theme];
 
   const isSelected = (x) => ranked.includes(x);
   const canAdd     = ranked.length < 10;
 
-  // Tap a chip → add to ranked with animation
   const addItem = (interest) => {
-    if (!canAdd) return;
-    setRanked(r => [...r, interest]);
-    setNewlyAdded(interest);
-    setTimeout(() => setNewlyAdded(null), 500);
+    if (!canAdd || isSelected(interest)) return;
+    setTappedChip(interest);
+    setTimeout(() => setTappedChip(null), 280);
+    setTimeout(() => setRanked(r => [...r, interest]), 100);
   };
 
-  // Remove from ranked
   const removeItem = (i) => setRanked(r => r.filter((_,idx) => idx !== i));
+  const moveUp     = (i) => { if (i===0) return; setRanked(r=>{const n=[...r];[n[i-1],n[i]]=[n[i],n[i-1]];return n;}); };
+  const moveDown   = (i) => { if (i===ranked.length-1) return; setRanked(r=>{const n=[...r];[n[i],n[i+1]]=[n[i+1],n[i]];return n;}); };
 
-  // Arrow reorder
-  const moveUp   = (i) => { if (i===0) return; setRanked(r=>{const n=[...r];[n[i-1],n[i]]=[n[i],n[i-1]];return n;}); };
-  const moveDown = (i) => { if (i===ranked.length-1) return; setRanked(r=>{const n=[...r];[n[i],n[i+1]]=[n[i+1],n[i]];return n;}); };
+  const dragRectsRef = useRef([]); // captured at drag start, immune to live shifts
 
-  // ── Touch drag ──
-  const onTouchStart = (e, i) => {
-    touchRef.current = { startY: e.touches[0].clientY, idx: i };
-    setDragIdx(i);
-  };
-
-  const onTouchMove = (e) => {
+  const onPointerDown = (e, i) => {
     e.preventDefault();
-    const y = e.touches[0].clientY;
-    // Find which row we're hovering over
-    let overIdx = null;
-    rowRefs.current.forEach((ref, idx) => {
-      if (!ref) return;
-      const rect = ref.getBoundingClientRect();
-      if (y >= rect.top && y <= rect.bottom) overIdx = idx;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStartY.current = e.clientY;
+    // Capture all row positions ONCE at drag start
+    dragRectsRef.current = rowRefs.current.map(ref => {
+      if (!ref) return null;
+      const r = ref.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, mid: r.top + r.height / 2 };
     });
-    setDragOver(overIdx);
+    setDragIdx(i);
+    setHoverIdx(i);
+    setDragOffset(0);
   };
 
-  const onTouchEnd = () => {
-    if (dragIdx !== null && dragOver !== null && dragIdx !== dragOver) {
+  const onPointerMove = (e) => {
+    if (dragIdx === null) return;
+    const offset = e.clientY - dragStartY.current;
+    setDragOffset(offset);
+
+    // Use captured rects, not live ones
+    const rects = dragRectsRef.current;
+    const y = e.clientY;
+    let over = dragIdx;
+
+    // Walk through every row and find the slot whose midpoint zone we're in
+    for (let idx = 0; idx < rects.length; idx++) {
+      const rect = rects[idx];
+      if (!rect) continue;
+      if (idx === dragIdx) continue;
+      // For rows ABOVE the dragged item, we drop above them when our pointer crosses their midpoint going up
+      // For rows BELOW the dragged item, we drop below them when our pointer crosses their midpoint going down
+      if (idx < dragIdx && y < rect.mid) {
+        over = idx;
+        break; // First (topmost) row whose mid we're above — drop here
+      }
+      if (idx > dragIdx) {
+        if (y > rect.mid) over = idx; // Keep going - last matching row below
+      }
+    }
+    setHoverIdx(over);
+  };
+
+  const onPointerUp = () => {
+    if (dragIdx !== null && hoverIdx !== null && dragIdx !== hoverIdx) {
       setRanked(r => {
         const n = [...r];
         const item = n.splice(dragIdx, 1)[0];
-        n.splice(dragOver, 0, item);
+        n.splice(hoverIdx, 0, item);
         return n;
       });
     }
     setDragIdx(null);
-    setDragOver(null);
-  };
-
-  // ── Mouse drag (desktop) ──
-  const onDragStart = (i) => setDragIdx(i);
-  const onDragEnter = (i) => setDragOver(i);
-  const onDragEnd   = () => {
-    if (dragIdx !== null && dragOver !== null && dragIdx !== dragOver) {
-      setRanked(r => {
-        const n = [...r];
-        const item = n.splice(dragIdx, 1)[0];
-        n.splice(dragOver, 0, item);
-        return n;
-      });
-    }
-    setDragIdx(null);
-    setDragOver(null);
+    setHoverIdx(null);
+    setDragOffset(0);
   };
 
   const ready = ranked.length >= 3;
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:c.bg }}>
+    <div
+      ref={containerRef}
+      style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:c.bg, position:"relative" }}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{ padding:"16px 20px 12px", flexShrink:0, borderBottom:`1px solid ${c.border}` }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
-          <span style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>
-            Your Top 10
-          </span>
-          <button
-            onClick={()=>onComplete([])}
-            style={{ background:"none", border:`1px solid ${c.border}`, borderRadius:10, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}
-          >
-            Skip
-          </button>
+          <span style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>Your Top 10</span>
+          <button onClick={()=>onComplete([])} style={{ background:"none", border:`1px solid ${c.border}`, borderRadius:10, padding:"6px 14px", cursor:"pointer", fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Skip</button>
         </div>
         <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>
           Pick what you care about · {ranked.length}/10 selected
         </div>
-        {/* Progress bar */}
         <div style={{ display:"flex", gap:3 }}>
           {Array.from({length:10}).map((_,i)=>(
             <div key={i} style={{ flex:1, height:4, borderRadius:2, background:i<ranked.length?c.accent:c.border, transition:"background 0.25s" }}/>
@@ -578,121 +660,158 @@ function Onboarding({ theme, onComplete }) {
         </div>
       </div>
 
-      <div style={{ flex:1, overflowY:"auto" }}>
+      <div style={{ flex:1, overflowY:"auto", overscrollBehavior:"contain" }}>
 
-        {/* ── Ranked list ── */}
+        {/* Ranked list */}
         {ranked.length > 0 && (
           <div style={{ padding:"14px 16px 6px" }}>
             <div style={{ fontSize:10, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>
-              Your Ranking · Hold & drag to reorder
+              Your Ranking · Drag the handle to reorder
             </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-              {ranked.map((interest, i) => (
-                <div
-                  key={interest}
-                  ref={el => rowRefs.current[i] = el}
-                  draggable
-                  onDragStart={()=>onDragStart(i)}
-                  onDragEnter={e=>{e.preventDefault();onDragEnter(i);}}
-                  onDragOver={e=>e.preventDefault()}
-                  onDragEnd={onDragEnd}
-                  onTouchStart={e=>onTouchStart(e,i)}
-                  onTouchMove={onTouchMove}
-                  onTouchEnd={onTouchEnd}
-                  style={{
-                    display:"flex", alignItems:"center", gap:10,
-                    background: dragOver===i && dragIdx!==i
-                      ? `${c.accent}20`
-                      : i===0 ? `${c.accent}12` : c.surface,
-                    border:`1.5px solid ${
-                      dragOver===i && dragIdx!==i ? c.accent
-                      : i===0 ? c.accent+"55" : c.border
-                    }`,
-                    borderRadius:14, padding:"11px 12px",
-                    opacity: dragIdx===i ? 0.4 : 1,
-                    cursor:"grab",
-                    animation: newlyAdded===interest ? "scaleIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both" : "none",
-                    transition:"background 0.15s, border-color 0.15s, opacity 0.15s",
-                    userSelect:"none",
-                  }}
-                >
-                  {/* Drag handle dots */}
-                  <div style={{ display:"flex", flexDirection:"column", gap:3, opacity:0.35, flexShrink:0 }}>
-                    {[0,1,2].map(r=>(
-                      <div key={r} style={{ display:"flex", gap:3 }}>
-                        <div style={{ width:3, height:3, borderRadius:"50%", background:c.sub }}/>
-                        <div style={{ width:3, height:3, borderRadius:"50%", background:c.sub }}/>
-                      </div>
-                    ))}
-                  </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:7, position:"relative" }}>
+              {ranked.map((interest, i) => {
+                const isDragging   = dragIdx === i;
+                const isDropTarget = dragIdx !== null && hoverIdx === i && dragIdx !== i;
+                // Shift other items to make room for drop indicator
+                let shift = 0;
+                if (dragIdx !== null && !isDragging) {
+                  if (dragIdx < i && hoverIdx >= i) shift = -56;
+                  else if (dragIdx > i && hoverIdx <= i) shift = 56;
+                }
+                return (
+                  <div
+                    key={interest}
+                    ref={el => rowRefs.current[i] = el}
+                    style={{
+                      display:"flex", alignItems:"center", gap:10,
+                      background: i===0 ? `${c.accent}12` : c.surface,
+                      border:`1.5px solid ${isDropTarget ? c.accent : i===0 ? c.accent+"55" : c.border}`,
+                      borderRadius:14, padding:"11px 12px",
+                      visibility: isDragging ? "hidden" : "visible",
+                      transform: `translateY(${shift}px)`,
+                      transition: isDragging ? "none" : "transform 0.22s cubic-bezier(0.34,1.2,0.64,1), border-color 0.18s, background 0.18s",
+                      animation: i === ranked.length - 1 && dragIdx === null ? "scaleIn 0.32s cubic-bezier(0.34,1.56,0.64,1) both" : "none",
+                      userSelect:"none",
+                      WebkitUserSelect:"none",
+                      position: "relative",
+                      zIndex: 1,
+                    }}
+                  >
+                    {/* Drop indicator line */}
+                    {isDropTarget && (
+                      <div style={{ position:"absolute", left:-2, right:-2, top:-5, height:3, background:c.accent, borderRadius:2, boxShadow:`0 0 8px ${c.accent}` }}/>
+                    )}
 
-                  {/* Rank badge */}
-                  <div style={{ width:28, height:28, borderRadius:8, background:i===0?c.accent:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"background 0.2s" }}>
-                    <span style={{ fontSize:13, fontWeight:800, color:i===0?"#FFFFFF":c.accent, fontFamily:"'DM Sans',sans-serif" }}>{i+1}</span>
-                  </div>
+                    {/* Drag handle */}
+                    <div
+                      onPointerDown={e=>onPointerDown(e,i)}
+                      style={{ display:"flex", flexDirection:"column", gap:3, padding:"6px 4px", cursor:"grab", touchAction:"none", flexShrink:0 }}
+                    >
+                      {[0,1,2].map(r=>(
+                        <div key={r} style={{ display:"flex", gap:3 }}>
+                          <div style={{ width:3, height:3, borderRadius:"50%", background:c.sub, opacity:0.55 }}/>
+                          <div style={{ width:3, height:3, borderRadius:"50%", background:c.sub, opacity:0.55 }}/>
+                        </div>
+                      ))}
+                    </div>
 
-                  <span style={{ flex:1, fontSize:14, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{interest}</span>
+                    <div style={{ width:28, height:28, borderRadius:8, background:i===0?c.accent:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <span style={{ fontSize:13, fontWeight:800, color:i===0?"#FFFFFF":c.accent, fontFamily:"'DM Sans',sans-serif" }}>{i+1}</span>
+                    </div>
 
-                  {/* Controls */}
-                  <div style={{ display:"flex", gap:4, flexShrink:0 }}>
-                    <button onClick={e=>{e.stopPropagation();moveUp(i);}} disabled={i===0}
-                      style={{ width:28, height:28, background:c.muted, border:"none", borderRadius:8, cursor:i===0?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:i===0?0.2:0.8, transition:"opacity 0.15s" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-                    </button>
-                    <button onClick={e=>{e.stopPropagation();moveDown(i);}} disabled={i===ranked.length-1}
-                      style={{ width:28, height:28, background:c.muted, border:"none", borderRadius:8, cursor:i===ranked.length-1?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:i===ranked.length-1?0.2:0.8, transition:"opacity 0.15s" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    <button onClick={e=>{e.stopPropagation();removeItem(i);}}
-                      style={{ width:28, height:28, background:"transparent", border:`1px solid ${c.border}`, borderRadius:8, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    </button>
+                    <span style={{ flex:1, fontSize:14, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{interest}</span>
+
+                    <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                      <button onClick={()=>moveUp(i)} disabled={i===0} style={{ width:28, height:28, background:c.muted, border:"none", borderRadius:8, cursor:i===0?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:i===0?0.2:0.8 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                      </button>
+                      <button onClick={()=>moveDown(i)} disabled={i===ranked.length-1} style={{ width:28, height:28, background:c.muted, border:"none", borderRadius:8, cursor:i===ranked.length-1?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:i===ranked.length-1?0.2:0.8 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      <button onClick={()=>removeItem(i)} style={{ width:28, height:28, background:"transparent", border:`1px solid ${c.border}`, borderRadius:8, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* ── Available chips ── */}
+        {/* Available chips */}
         <div style={{ padding: ranked.length>0 ? "10px 16px 24px" : "16px 16px 24px" }}>
           <div style={{ fontSize:10, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:12 }}>
             {ranked.length===10 ? "Remove one to add another" : "Tap to add"}
           </div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:9 }}>
-            {ALL_INTERESTS.filter(x=>!isSelected(x)).map(interest => (
-              <button
-                key={interest}
-                onPointerDown={() => {
-                  if (!canAdd) return;
-                  addItem(interest);
-                }}
-                style={{
-                  padding:"10px 18px",
-                  background: c.surface,
-                  border:`1.5px solid ${c.border}`,
-                  borderRadius:22, fontSize:13, fontWeight:600,
-                  color: canAdd ? c.text : c.sub,
-                  fontFamily:"'DM Sans',sans-serif",
-                  cursor: canAdd ? "pointer" : "not-allowed",
-                  opacity: canAdd ? 1 : 0.45,
-                  WebkitTapHighlightColor:"transparent",
-                  touchAction:"manipulation",
-                  transition:"transform 0.1s, background 0.1s, border-color 0.1s",
-                }}
-                onPointerEnter={e=>{ if(canAdd){ e.currentTarget.style.borderColor=c.accent; e.currentTarget.style.background=`${c.accent}10`; e.currentTarget.style.color=c.accent; }}}
-                onPointerLeave={e=>{ e.currentTarget.style.borderColor=c.border; e.currentTarget.style.background=c.surface; e.currentTarget.style.color=canAdd?c.text:c.sub; }}
-                onPointerDown={e=>{ if(canAdd){ e.currentTarget.style.transform="scale(0.92)"; e.currentTarget.style.background=c.accent; e.currentTarget.style.color="#FFFFFF"; e.currentTarget.style.borderColor=c.accent; }}}
-                onPointerUp={e=>{ e.currentTarget.style.transform="scale(1)"; }}
-              >
-                {interest}
-              </button>
-            ))}
+            {ALL_INTERESTS.filter(x=>!isSelected(x)).map(interest => {
+              const isTapped = tappedChip === interest;
+              return (
+                <button
+                  key={interest}
+                  onClick={()=>addItem(interest)}
+                  style={{
+                    padding:"10px 18px",
+                    background: isTapped ? c.accent : c.surface,
+                    border:`1.5px solid ${isTapped ? c.accent : c.border}`,
+                    borderRadius:22, fontSize:13, fontWeight:600,
+                    color: isTapped ? "#FFFFFF" : canAdd ? c.text : c.sub,
+                    fontFamily:"'DM Sans',sans-serif",
+                    cursor: canAdd ? "pointer" : "not-allowed",
+                    opacity: canAdd ? 1 : 0.4,
+                    WebkitTapHighlightColor:"transparent",
+                    touchAction:"manipulation",
+                    transform: isTapped ? "scale(0.94)" : "scale(1)",
+                    transition: "transform 0.18s cubic-bezier(0.34,1.56,0.64,1), background 0.18s, border-color 0.18s, color 0.18s",
+                  }}
+                >
+                  {interest}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* ── Confirm ── */}
+      {/* ── Floating ghost — the lifted card that follows pointer ── */}
+      {dragIdx !== null && rowRefs.current[dragIdx] && (() => {
+        const origRect = rowRefs.current[dragIdx].getBoundingClientRect();
+        const containerRect = containerRef.current?.getBoundingClientRect() || { top:0, left:0 };
+        return (
+          <div style={{
+            position:"absolute",
+            top: origRect.top - containerRect.top + dragOffset,
+            left: origRect.left - containerRect.left,
+            width: origRect.width,
+            display:"flex", alignItems:"center", gap:10,
+            background: c.surface,
+            border:`2px solid ${c.accent}`,
+            borderRadius:14, padding:"11px 12px",
+            boxShadow:`0 16px 40px rgba(0,0,0,0.35), 0 0 0 4px ${c.accent}22`,
+            transform:"scale(1.04) rotate(-1deg)",
+            zIndex: 100,
+            pointerEvents:"none",
+            userSelect:"none",
+            transition: "none",
+          }}>
+            <div style={{ display:"flex", flexDirection:"column", gap:3, padding:"6px 4px", flexShrink:0 }}>
+              {[0,1,2].map(r=>(
+                <div key={r} style={{ display:"flex", gap:3 }}>
+                  <div style={{ width:3, height:3, borderRadius:"50%", background:c.accent }}/>
+                  <div style={{ width:3, height:3, borderRadius:"50%", background:c.accent }}/>
+                </div>
+              ))}
+            </div>
+            <div style={{ width:28, height:28, borderRadius:8, background:c.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <span style={{ fontSize:13, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{(hoverIdx ?? dragIdx) + 1}</span>
+            </div>
+            <span style={{ flex:1, fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{ranked[dragIdx]}</span>
+          </div>
+        );
+      })()}
+
+      {/* Confirm */}
       <div style={{ padding:"12px 20px 20px", flexShrink:0, borderTop:`1px solid ${c.border}`, background:c.bg }}>
         <button
           onClick={()=>ready && onComplete(ranked)}
@@ -711,6 +830,353 @@ function Onboarding({ theme, onComplete }) {
         </button>
       </div>
 
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MERCHANT LOGIN
+// ─────────────────────────────────────────────────────────────────────────────
+function MerchantLogin({ theme, lang, onLogin, onBack, onApply }) {
+  const [email, setEmail]   = useState("");
+  const [password, setPass] = useState("");
+  const [error, setError]   = useState("");
+  const [on, setOn]         = useState(false);
+  const c = TH[theme];
+  useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
+  const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
+
+  // Demo merchant credentials (in production: Firebase Auth)
+  const handleSubmit = () => {
+    if (email==="merchant@bkm.qa" && password==="merchant123") {
+      SESSION.isMerchant = true;
+      SESSION.merchantName = "Al Wakra Shawarma Palace";
+      SESSION.merchantCategory = "food";
+      onLogin();
+    } else {
+      setError("Invalid credentials. Demo: merchant@bkm.qa / merchant123");
+      setTimeout(()=>setError(""), 4000);
+    }
+  };
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", padding:"24px 24px 32px" }}>
+      <div style={{ ...a(0.04), display:"flex", alignItems:"center", marginBottom:24 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+      </div>
+
+      <div style={{ ...a(0.08), textAlign:"center", marginBottom:32 }}>
+        <div style={{ width:60, height:60, borderRadius:18, background:`${c.accent}15`, border:`1.5px solid ${c.accent}44`, display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:14 }}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18v10a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path d="M3 9l2-5h14l2 5"/><line x1="12" y1="14" x2="12" y2="17"/></svg>
+        </div>
+        <div style={{ fontSize:22, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Merchant Sign In</div>
+        <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>Manage your listings and reach Doha shoppers</div>
+      </div>
+
+      <div style={{ ...a(0.12), display:"flex", flexDirection:"column", gap:12, flex:1 }}>
+        <div>
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Email</div>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="merchant@example.com" style={inp(c)}/>
+        </div>
+        <div>
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Password</div>
+          <input type="password" value={password} onChange={e=>setPass(e.target.value)} placeholder="••••••••" style={inp(c)}/>
+        </div>
+        {error && <div style={{ fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", padding:"8px 12px", background:`${c.accent}10`, borderRadius:10 }}>{error}</div>}
+
+        <Btn onClick={handleSubmit} theme={theme}>Sign In to Merchant Portal</Btn>
+
+        <div style={{ textAlign:"center", padding:"20px 0 0", marginTop:"auto" }}>
+          <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>Not a merchant yet?</div>
+          <button onClick={onApply} style={{ background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:12, padding:"11px 22px", fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
+            Apply to be a Partner
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARTNER REQUEST FORM
+// ─────────────────────────────────────────────────────────────────────────────
+function PartnerRequest({ theme, lang, onBack, onSubmitted }) {
+  const [businessName, setBusinessName] = useState("");
+  const [category, setCategory]         = useState("");
+  const [contactName, setContactName]   = useState("");
+  const [phone, setPhone]               = useState("");
+  const [email, setEmail]               = useState("");
+  const [district, setDistrict]         = useState("");
+  const [message, setMessage]           = useState("");
+  const [submitted, setSubmitted]       = useState(false);
+  const [on, setOn]                     = useState(false);
+  const c = TH[theme];
+  useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
+  const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
+
+  const ready = businessName && category && contactName && phone && email && district;
+
+  const handleSubmit = () => {
+    if (!ready) return;
+    PARTNER_REQUESTS.push({
+      id: Date.now(),
+      businessName, category, contactName, phone, email, district, message,
+      submittedAt: new Date().toISOString(),
+      status: "pending",
+    });
+    setSubmitted(true);
+    setTimeout(()=>{ onSubmitted && onSubmitted(); }, 2400);
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:20, padding:"0 28px" }}>
+        <div style={{ width:72, height:72, borderRadius:"50%", background:"#16A34A15", border:"2px solid #16A34A55", display:"flex", alignItems:"center", justifyContent:"center", animation:"scaleIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both" }}>
+          <Ico.Check s={32} c="#16A34A"/>
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:20, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:8 }}>Request Received</div>
+          <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>The BKM team will review your application and get back to you within 48 hours via email.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ flex:1, overflowY:"auto", padding:"20px 24px 32px" }}>
+        <div style={{ ...a(0.04), display:"flex", alignItems:"center", gap:12, marginBottom:18 }}>
+          <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+          <div style={{ fontSize:18, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Become a BKM Partner</div>
+        </div>
+
+        <div style={{ ...a(0.08), background:`${c.accent}08`, border:`1px solid ${c.accent}33`, borderRadius:14, padding:"14px", marginBottom:20 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:c.accent, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>List your business on BKM</div>
+          <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>
+            Free during beta. Manage your prices, reach thousands of Doha shoppers, build a verified following.
+          </div>
+        </div>
+
+        <div style={{ ...a(0.12), display:"flex", flexDirection:"column", gap:14 }}>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Business Name *</div>
+            <input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Your business name" style={inp(c)}/>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Category *</div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+              {CATS.filter(x=>x.key!=="all").map(cat=>(
+                <button key={cat.key} onClick={()=>setCategory(cat.key)} style={{ padding:"8px 14px", background:category===cat.key?c.accent:"transparent", border:`1.5px solid ${category===cat.key?c.accent:c.border}`, borderRadius:18, fontSize:12, fontWeight:600, color:category===cat.key?"#FFFFFF":c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>{cat.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Contact Person *</div>
+            <input value={contactName} onChange={e=>setContactName(e.target.value)} placeholder="Full name" style={inp(c)}/>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Phone *</div>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+974 XXXX XXXX" style={inp(c)}/>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Email *</div>
+            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="business@example.com" style={inp(c)}/>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>District *</div>
+            <select value={district} onChange={e=>setDistrict(e.target.value)} style={{ ...inp(c), appearance:"none", paddingRight:32 }}>
+              <option value="">Select your district</option>
+              {AREAS.map(d=><option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Tell us about your business</div>
+            <textarea value={message} onChange={e=>setMessage(e.target.value)} placeholder="What do you sell? How did you hear about BKM?" rows={4} style={{ ...inp(c), resize:"none", paddingTop:12 }}/>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding:"16px 24px 24px", flexShrink:0, borderTop:`1px solid ${c.border}`, background:c.bg }}>
+        <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"15px 0", background:ready?c.accent:c.muted, color:ready?"#FFFFFF":c.sub, border:"none", borderRadius:14, fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor:ready?"pointer":"default", transition:"all 0.2s" }}>
+          Submit Application
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MERCHANT PORTAL
+// ─────────────────────────────────────────────────────────────────────────────
+function MerchantPortal({ theme, lang, onSignOut }) {
+  const [tab, setTab]     = useState("dashboard");
+  const [listings, setListings] = useState(MERCHANT_LISTINGS.filter(x=>x.merchant===SESSION.merchantName));
+  const [showAdd, setShowAdd]   = useState(false);
+  const [newItem, setNewItem]   = useState({ name:"", price:"", description:"" });
+  const c = TH[theme];
+
+  const myFollowers = 124; // demo number
+  const myViews     = 1842;
+  const myRevenue   = "QAR 8,400";
+
+  const handleAddListing = () => {
+    if (!newItem.name || !newItem.price) return;
+    const item = {
+      id: Date.now(),
+      merchant: SESSION.merchantName,
+      category: SESSION.merchantCategory,
+      name: newItem.name,
+      price: parseFloat(newItem.price),
+      description: newItem.description,
+      addedAt: new Date().toISOString(),
+    };
+    MERCHANT_LISTINGS.push(item);
+    setListings(l=>[item, ...l]);
+    setNewItem({ name:"", price:"", description:"" });
+    setShowAdd(false);
+  };
+
+  const handleDelete = (id) => {
+    const idx = MERCHANT_LISTINGS.findIndex(x=>x.id===id);
+    if (idx>=0) MERCHANT_LISTINGS.splice(idx,1);
+    setListings(l=>l.filter(x=>x.id!==id));
+  };
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"16px 20px 14px", borderBottom:`1px solid ${c.border}`, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+            <span style={{ fontSize:18, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{SESSION.merchantName||"Merchant"}</span>
+            <span style={{ fontSize:9, fontWeight:700, color:c.accent, background:`${c.accent}15`, border:`1px solid ${c.accent}44`, borderRadius:5, padding:"2px 6px", fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>MERCHANT</span>
+          </div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>BKM Merchant Portal</div>
+        </div>
+        <button onClick={onSignOut} title="Sign out" style={{ width:38, height:38, background:"transparent", border:`1px solid ${c.border}`, borderRadius:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.18s" }}
+          onMouseOver={e=>{ e.currentTarget.style.borderColor="#EF444466"; e.currentTarget.style.background="#EF444410"; }}
+          onMouseOut={e=>{ e.currentTarget.style.borderColor=c.border; e.currentTarget.style.background="transparent"; }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
+        {[
+          {k:"dashboard", label:"Dashboard"},
+          {k:"listings",  label:"Listings"},
+          {k:"followers", label:"Followers"},
+        ].map(t=>(
+          <button key={t.k} onClick={()=>setTab(t.k)} style={{ flex:1, padding:"13px 0", background:"transparent", border:"none", borderBottom:tab===t.k?`2px solid ${c.accent}`:"2px solid transparent", fontSize:12, fontWeight:tab===t.k?700:500, color:tab===t.k?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s" }}>{t.label}</button>
+        ))}
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"18px 20px 24px" }}>
+
+        {/* Dashboard */}
+        {tab==="dashboard" && (
+          <div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
+              {[
+                { label:"Followers",     val: myFollowers, sub:"+12 this week" },
+                { label:"Profile Views", val: myViews,     sub:"+340 this week" },
+                { label:"Active Listings", val: listings.length, sub:"" },
+                { label:"Est. Revenue",  val: myRevenue,   sub:"This month" },
+              ].map((s,i)=>(
+                <div key={i} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"13px 14px" }}>
+                  <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{s.label}</div>
+                  <div style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>{s.val}</div>
+                  {s.sub && <div style={{ fontSize:10, color:"#16A34A", fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{s.sub}</div>}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"14px" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>Quick Actions</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                <button onClick={()=>{ setTab("listings"); setShowAdd(true); }} style={{ padding:"11px 14px", background:c.accent, border:"none", borderRadius:11, fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", textAlign:"left" }}>+ Add a New Listing</button>
+                <button onClick={()=>setTab("followers")} style={{ padding:"11px 14px", background:"transparent", border:`1px solid ${c.border}`, borderRadius:11, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", textAlign:"left" }}>View My Followers</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Listings */}
+        {tab==="listings" && (
+          <div>
+            {!showAdd ? (
+              <button onClick={()=>setShowAdd(true)} style={{ width:"100%", padding:"13px 0", background:c.accent, border:"none", borderRadius:12, fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", marginBottom:14 }}>
+                + Add New Listing
+              </button>
+            ) : (
+              <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"14px", marginBottom:14 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>New Listing</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <input placeholder="Item name" value={newItem.name} onChange={e=>setNewItem(x=>({...x,name:e.target.value}))} style={inp(c)}/>
+                  <input placeholder="Price (QAR)" type="number" value={newItem.price} onChange={e=>setNewItem(x=>({...x,price:e.target.value}))} style={inp(c)}/>
+                  <textarea placeholder="Short description (optional)" rows={2} value={newItem.description} onChange={e=>setNewItem(x=>({...x,description:e.target.value}))} style={{ ...inp(c), resize:"none", paddingTop:10 }}/>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={()=>{setShowAdd(false);setNewItem({name:"",price:"",description:""});}} style={{ flex:1, padding:"11px 0", background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, fontSize:12, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
+                    <button onClick={handleAddListing} disabled={!newItem.name || !newItem.price} style={{ flex:2, padding:"11px 0", background:newItem.name && newItem.price ? c.accent : c.muted, border:"none", borderRadius:10, fontSize:12, fontWeight:700, color:newItem.name && newItem.price ? "#FFFFFF" : c.sub, fontFamily:"'DM Sans',sans-serif", cursor:newItem.name && newItem.price ? "pointer" : "default" }}>Save Listing</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {listings.length===0 ? (
+              <div style={{ textAlign:"center", padding:"40px 24px" }}>
+                <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>No listings yet</div>
+                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Add your first product to start reaching customers.</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:9 }}>
+                {listings.map(item=>(
+                  <div key={item.id} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, padding:"12px 14px", display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.name}</div>
+                      {item.description && <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{item.description}</div>}
+                    </div>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontSize:14, fontWeight:800, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>QAR {item.price.toFixed(2)}</div>
+                    </div>
+                    <button onClick={()=>handleDelete(item.id)} style={{ width:30, height:30, background:"transparent", border:`1px solid ${c.border}`, borderRadius:8, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Followers */}
+        {tab==="followers" && (
+          <div>
+            <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"16px 14px", textAlign:"center", marginBottom:14 }}>
+              <div style={{ fontSize:32, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>{myFollowers}</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Total Followers</div>
+            </div>
+            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Recent followers</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {[
+                { username:"DealHunterQ", time:"2h ago" },
+                { username:"PearlFinds", time:"5h ago" },
+                { username:"DohaDeals_", time:"1d ago" },
+                { username:"LusailLooks", time:"2d ago" },
+                { username:"NewHunter99", time:"3d ago" },
+              ].map((f,i)=>(
+                <div key={i} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, padding:"10px 12px", display:"flex", alignItems:"center", gap:10 }}>
+                  <ColorAvatar user={{username:f.username, av:f.username}} size={32}/>
+                  <div style={{ flex:1, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{f.username}</div>
+                  <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{f.time}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -904,16 +1370,16 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
     <RankCard tier={rank} c={c} founder={isFounder} hasTopBanner={!!(postBanner || isOwn)}>
       <div style={{ padding:"13px 14px 12px" }}>
 
-        {/* ── Post banner strip ── */}
+        {/* Post banner strip */}
         {(postBanner || isOwn) && (
-          <div style={{ margin:"-13px -14px 10px -14px", background: postBanner ? postBanner.grad : "linear-gradient(90deg,#1D6FEB,#56B0FF)", padding:"5px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <span style={{ fontSize:10, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em" }}>
+          <div style={{ margin:"-13px -14px 11px -14px", background: postBanner ? postBanner.grad : "linear-gradient(90deg,#1D6FEB,#56B0FF)", padding:"7px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <span style={{ fontSize:10, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.14em", textShadow:"0 1px 2px rgba(0,0,0,0.15)" }}>
               {isOwn ? `YOUR POST · ${claimCount} REVEALS` : postBanner?.label}
             </span>
-            <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-              <div style={{ width:4, height:4, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
-              <div style={{ width:4, height:4, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
-              <div style={{ width:4, height:4, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
+            <div style={{ display:"flex", alignItems:"center", gap:3 }}>
+              <div style={{ width:3, height:3, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
+              <div style={{ width:3, height:3, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
+              <div style={{ width:3, height:3, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
             </div>
           </div>
         )}
@@ -1040,27 +1506,42 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           </button>
 
           {/* Share sheet */}
-          {showShare && (
-            <>
-              <div style={{ position:"fixed", inset:0, zIndex:200 }} onClick={()=>setShowShare(false)}/>
-              <div style={{ position:"absolute", bottom:"calc(100% + 8px)", right:0, zIndex:201, background:c.surface, border:`1px solid ${c.border}`, borderRadius:16, padding:"12px 0", boxShadow:"0 -4px 24px rgba(0,0,0,0.18)", minWidth:180, animation:"shareSlide 0.2s ease both" }}>
-                <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.12em", textTransform:"uppercase", padding:"0 14px 8px", fontFamily:"'DM Sans',sans-serif" }}>Share via</div>
-                {[
-                  { label:"WhatsApp",  icon:"💬", color:"#25D366" },
-                  { label:"Copy Link", icon:"🔗", color:c.accent  },
-                  { label:"Instagram", icon:"📸", color:"#E1306C" },
-                ].map(opt=>(
-                  <button key={opt.label} onClick={()=>setShowShare(false)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 14px", background:"none", border:"none", cursor:"pointer", textAlign:"left", transition:"background 0.12s" }}
-                    onMouseOver={e=>e.currentTarget.style.background=c.muted}
-                    onMouseOut={e=>e.currentTarget.style.background="none"}
-                  >
-                    <span style={{ fontSize:18 }}>{opt.icon}</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{opt.label}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          {showShare && (() => {
+            const shareUrl  = "https://bkm-app.vercel.app";
+            const shareText = `${deal.user.username} found a deal at ${deal.place} (${deal.district}) on BKM — ${deal.subject.slice(0,80)}${deal.subject.length>80?"...":""}\n\nBKM — Community-powered price discovery in Qatar. We do it so you don't have to.\n\n${shareUrl}`;
+            const handleNative = async () => {
+              setShowShare(false);
+              if (navigator.share) {
+                try { await navigator.share({ title:`BKM — ${deal.place}`, text:shareText, url:shareUrl }); } catch(e){}
+              } else {
+                navigator.clipboard?.writeText(shareText);
+              }
+            };
+            const handleWhatsApp = () => { setShowShare(false); window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`,"_blank"); };
+            const handleCopy     = () => { setShowShare(false); navigator.clipboard?.writeText(shareText); };
+            const handleX        = () => { setShowShare(false); window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,"_blank"); };
+            return (
+              <>
+                <div style={{ position:"fixed", inset:0, zIndex:200 }} onClick={()=>setShowShare(false)}/>
+                <div style={{ position:"absolute", bottom:"calc(100% + 8px)", right:0, zIndex:201, background:c.surface, border:`1px solid ${c.border}`, borderRadius:16, padding:"10px 0", boxShadow:"0 -4px 24px rgba(0,0,0,0.18)", minWidth:200, animation:"shareSlide 0.2s ease both" }}>
+                  <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.12em", textTransform:"uppercase", padding:"0 14px 8px", fontFamily:"'DM Sans',sans-serif" }}>Share via</div>
+                  {[
+                    { label:"Share...",   action:handleNative },
+                    { label:"WhatsApp",   action:handleWhatsApp },
+                    { label:"Copy Link",  action:handleCopy },
+                    { label:"X / Twitter",action:handleX },
+                  ].map(opt=>(
+                    <button key={opt.label} onClick={opt.action} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 14px", background:"none", border:"none", cursor:"pointer", textAlign:"left", transition:"background 0.12s" }}
+                      onMouseOver={e=>e.currentTarget.style.background=c.muted}
+                      onMouseOut={e=>e.currentTarget.style.background="none"}
+                    >
+                      <span style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
       </div>
@@ -1075,7 +1556,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // ─────────────────────────────────────────────────────────────────────────────
 // FEED
 // ─────────────────────────────────────────────────────────────────────────────
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||DEALS);
   const [claimed, setClaimed]       = useState(new Set(SESSION.claimed));
@@ -1088,10 +1569,14 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const [revealCount, setRevealCount] = useState(SESSION.revealsCount);
   const [showTutorial, setShowTutorial] = useState(!SESSION.tutorialSeen);
   const [showLimitModal, setShowLimitModal] = useState(false);
+  const [feedFilter, setFeedFilter] = useState(SESSION.feedFilter||"foryou");
+  const [pullDist, setPullDist]     = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStartY                  = useRef(null);
+  const scrollRef                   = useRef(null);
   const REVEAL_LIMIT = 10;
   const limitReached = revealCount >= REVEAL_LIMIT;
 
-  // Sync when propDeals changes (founder post, dev approval)
   useEffect(()=>{ if(initialDeals) setDeals(initialDeals); },[initialDeals]);
   const [showAreas, setShowAreas] = useState(false);
   const [on, setOn]               = useState(false);
@@ -1102,6 +1587,37 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const AREAS = ["The Pearl","West Bay","Lusail","Al Waab","Msheireb","Al Hilal","Madinat Khalifa","Al Sadd","Old Airport","Al Wakra"];
 
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
+
+  // Pull-to-refresh logic
+  const onTouchStartRefresh = (e) => {
+    if (scrollRef.current && scrollRef.current.scrollTop === 0) {
+      pullStartY.current = e.touches[0].clientY;
+    }
+  };
+  const onTouchMoveRefresh = (e) => {
+    if (pullStartY.current === null) return;
+    const dist = e.touches[0].clientY - pullStartY.current;
+    if (dist > 0) {
+      const damped = Math.min(dist * 0.45, 80);
+      setPullDist(damped);
+      if (dist > 8) e.preventDefault();
+    }
+  };
+  const onTouchEndRefresh = () => {
+    if (pullDist > 60) {
+      setRefreshing(true);
+      setPullDist(60);
+      setTimeout(() => {
+        setRefreshing(false);
+        setPullDist(0);
+        // Re-shuffle deals slightly to feel "refreshed"
+        setDeals(ds => [...ds].sort(()=>Math.random()-0.5));
+      }, 900);
+    } else {
+      setPullDist(0);
+    }
+    pullStartY.current = null;
+  };
 
   const handleClaim = (id) => {
     if (limitReached) { setShowLimitModal(true); return; }
@@ -1135,10 +1651,15 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
     }
   };
 
-  // Filter by interests if set
+  // Filter by category, then by feed mode (For You / Following), then by interests
   const filtered = (() => {
     let base = activeCat==="all" ? deals : deals.filter(d=>d.cat===activeCat);
-    if (interests.length > 0 && activeCat==="all") {
+    // Following filter
+    if (feedFilter === "following" && SESSION.following.size > 0) {
+      base = base.filter(d => SESSION.following.has(d.user.id));
+    }
+    // Personalized For You ranking based on interests (only when no specific category)
+    if (feedFilter === "foryou" && interests.length > 0 && activeCat==="all") {
       const catMap = { food:"Food & Dining", groceries:"Groceries", stores:"Fashion & Clothing", electronics:"Electronics", flowers:"Flowers & Gifts", pharmacies:"Pharmacies" };
       const prioritised = base.filter(d => interests.includes(catMap[d.cat]));
       const rest = base.filter(d => !interests.includes(catMap[d.cat]));
@@ -1152,15 +1673,16 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   };
 
   const handleAllow = () => {
+    // Immediately dismiss the permission modal so loading overlay shows alone
+    setLocPerm("granted");
     setLocLoading(true);
     setTimeout(() => {
       const loc = "The Pearl, Doha";
       setHasLoc(loc);
       setLocLoading(false);
-      setLocPerm("granted");
       SESSION.locPerm = "granted";
       SESSION.hasLoc = loc;
-    }, 1400);
+    }, 900);
   };
 
   const handleDeny = () => {
@@ -1284,7 +1806,21 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
       )}
 
       {/* Scrollable content */}
-      <div style={{ flex:1, overflowY:"auto", paddingBottom:12 }}>
+      <div
+        ref={scrollRef}
+        onTouchStart={onTouchStartRefresh}
+        onTouchMove={onTouchMoveRefresh}
+        onTouchEnd={onTouchEndRefresh}
+        style={{ flex:1, overflowY:"auto", paddingBottom:12, position:"relative", overscrollBehavior:"contain" }}
+      >
+
+        {/* Pull-to-refresh indicator */}
+        {(pullDist > 0 || refreshing) && (
+          <div style={{ position:"absolute", top:0, left:0, right:0, height:pullDist, display:"flex", alignItems:"center", justifyContent:"center", zIndex:5, transition:refreshing?"none":"height 0.2s ease" }}>
+            <div style={{ width:32, height:32, borderRadius:"50%", border:`2.5px solid ${c.border}`, borderTopColor:c.accent, animation:refreshing?"bkmSpin 0.8s linear infinite":"none", transform:`rotate(${pullDist*4}deg)`, opacity:Math.min(pullDist/60, 1) }}/>
+          </div>
+        )}
+        <div style={{ paddingTop: pullDist, transition:refreshing?"none":"padding-top 0.2s ease" }}>
 
         {/* Location bar */}
         <div style={{ padding:"10px 20px 0", position:"relative" }}>
@@ -1335,6 +1871,18 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
           </div>
         </div>
 
+        {/* For You / Following toggle */}
+        <div style={{ padding:"0 20px 12px" }}>
+          <div style={{ display:"flex", gap:0, background:c.muted, borderRadius:11, padding:3, border:`1px solid ${c.border}` }}>
+            {[
+              {k:"foryou",    label:"For You"},
+              {k:"following", label:`Following${SESSION.following.size>0?` (${SESSION.following.size})`:""}`},
+            ].map(t=>(
+              <button key={t.k} onClick={()=>{ setFeedFilter(t.k); SESSION.feedFilter=t.k; }} style={{ flex:1, padding:"8px 0", background:feedFilter===t.k?c.bg:"transparent", border:"none", borderRadius:9, fontSize:12, fontWeight:feedFilter===t.k?700:500, color:feedFilter===t.k?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.18s", boxShadow:feedFilter===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none" }}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+
         {/* Category filter */}
         <div style={{ paddingBottom:16, overflowX:"auto", scrollbarWidth:"none" }}>
           <div style={{ display:"flex", gap:8, paddingLeft:20, paddingRight:20 }}>
@@ -1352,7 +1900,16 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
 
         {/* Deal stack */}
         <div style={{ padding:"0 20px", display:"flex", flexDirection:"column", gap:14 }}>
-          {filtered.length===0 && (
+          {filtered.length===0 && feedFilter==="following" && (
+            <div style={{ textAlign:"center", padding:"48px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+              <div style={{ width:56, height:56, borderRadius:16, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+              </div>
+              <div style={{ fontSize:15, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>You're not following anyone yet</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, maxWidth:240 }}>Tap a username on any post and follow them to see their deals here.</div>
+            </div>
+          )}
+          {filtered.length===0 && feedFilter!=="following" && (
             <div style={{ textAlign:"center", padding:"48px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
               <div style={{ width:56, height:56, borderRadius:16, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <TagMark size={28} fill={c.sub} holeBg={c.muted}/>
@@ -1384,21 +1941,22 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
 
         {/* Partner CTA */}
         <div style={{ padding:"20px 20px 0" }}>
-          <div style={{ background:c.accent, borderRadius:20, padding:"22px 20px", position:"relative", overflow:"hidden", cursor:"pointer" }}
-            onClick={()=>{}}
-            onMouseOver={e=>e.currentTarget.style.opacity="0.9"} onMouseOut={e=>e.currentTarget.style.opacity="1"}
+          <button
+            onClick={()=>onPartnerRequest && onPartnerRequest()}
+            style={{ width:"100%", background:c.accent, borderRadius:20, padding:"22px 20px", position:"relative", overflow:"hidden", cursor:"pointer", border:"none", textAlign:"left", display:"block", WebkitTapHighlightColor:"transparent" }}
           >
-            <div style={{ position:"absolute", right:-18, top:"50%", transform:"translateY(-50%)", opacity:0.08 }}><TagMark size={100} fill="#FFFFFF" holeBg="transparent"/></div>
+            <div style={{ position:"absolute", right:-18, top:"50%", transform:"translateY(-50%)", opacity:0.08, pointerEvents:"none" }}><TagMark size={100} fill="#FFFFFF" holeBg="transparent"/></div>
             <div style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.55)", letterSpacing:"0.18em", textTransform:"uppercase", marginBottom:8, fontFamily:"'DM Sans',sans-serif" }}>For Business</div>
             <div style={{ fontSize:18, fontWeight:700, color:"#FFFFFF", lineHeight:1.3, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em", marginBottom:14, maxWidth:210 }}>Have a better price? Jump to the top.</div>
-            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#FFFFFF", borderRadius:10, padding:"9px 16px" }}>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#FFFFFF", borderRadius:10, padding:"9px 16px", pointerEvents:"none" }}>
               <span style={{ fontSize:13, fontWeight:700, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>Join as a partner</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </div>
-          </div>
+          </button>
         </div>
 
         <div style={{ height:20 }}/>
+        </div>
       </div>
     </div>
   );
@@ -1538,7 +2096,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
           <Btn onClick={handleSubmit} theme={theme} style={{ opacity:ready?1:0.3 }}>
             Submit for Review
           </Btn>
-          {getMe().founder && ready && <div style={{ textAlign:"center", fontSize:11, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif", marginTop:8 }}>⭐ Founder post — will appear in review queue</div>}
+          {getMe().founder && ready && <div style={{ textAlign:"center", fontSize:11, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif", marginTop:8, fontWeight:600 }}>Founder post — will appear in review queue</div>}
           {!ready && <div style={{ textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:8 }}>Fill in all fields to continue</div>}
         </div>
         <div style={{ height:8 }}/>
@@ -1550,15 +2108,16 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE
 // ─────────────────────────────────────────────────────────────────────────────
-function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut, onNotifications, onSettings, unreadCount=0 }) {
+function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut, onNotifications, onSettings, unreadCount=0, onViewFollowing }) {
   const resolvedUser = userProp || getMe();
-  const [on, setOn]           = useState(false);
-  const [following, setFollowing] = useState(false);
+  const [on, setOn]                 = useState(false);
+  const [following, setFollowing]   = useState(SESSION.following.has(resolvedUser.id));
   const [followAnim, setFollowAnim] = useState(false);
   const c = TH[theme]; const ar = lang==="ar";
-  const user = resolvedUser; // use resolved user everywhere
+  const user = resolvedUser;
   const isOwn = user.id === getMe().id;
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
+  useEffect(()=>{ setFollowing(SESSION.following.has(user.id)); }, [user.id]);
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
   const myDeals = DEALS.filter(d=>d.user.id===user.id);
   const rank = RANKS[user.rank];
@@ -1566,7 +2125,13 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
   const handleFollow = () => {
     setFollowAnim(true);
     setTimeout(()=>setFollowAnim(false),500);
-    setFollowing(f=>!f);
+    if (SESSION.following.has(user.id)) {
+      SESSION.following.delete(user.id);
+      setFollowing(false);
+    } else {
+      SESSION.following.add(user.id);
+      setFollowing(true);
+    }
   };
 
   return (
@@ -1617,8 +2182,9 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
             {/* Follow / Report buttons for other profiles */}
             {!isOwn && (
               <div style={{ display:"flex", gap:10, marginTop:16, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
-                <button onClick={handleFollow} style={{ flex:1, padding:"11px 0", background:following?c.muted:c.accent, border:`1px solid ${following?c.border:"transparent"}`, borderRadius:12, fontSize:13, fontWeight:700, color:following?c.text:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s", animation:followAnim?"upBurst 0.45s ease both":"none" }}>
-                  {following?"Following ✓":"Follow"}
+                <button onClick={handleFollow} style={{ flex:1, padding:"11px 0", background:following?c.muted:c.accent, border:`1px solid ${following?c.border:"transparent"}`, borderRadius:12, fontSize:13, fontWeight:700, color:following?c.text:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s", animation:followAnim?"upBurst 0.45s ease both":"none", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                  {following && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                  {following?"Following":"Follow"}
                 </button>
                 <button style={{ width:44, height:44, background:"transparent", border:`1px solid ${c.border}`, borderRadius:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
@@ -1629,15 +2195,15 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
             {/* Stats */}
             <div style={{ display:"flex", marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
               {[
-                { label:"Posts",      val: user.deals },
-                { label:"Followers",  val: user.followers },
-                { label:"Following",  val: user.following||0 },
-                { label:"Total Ups",  val: user.deals>0 ? user.deals*12 : 0 },
+                { label:"Posts",      val: user.deals,                                              onClick:null },
+                { label:"Followers",  val: user.followers,                                          onClick:null },
+                { label:"Following",  val: isOwn ? SESSION.following.size : (user.following||0),    onClick: isOwn ? onViewFollowing : null },
+                { label:"Total Ups",  val: user.deals>0 ? user.deals*12 : 0,                        onClick:null },
               ].map((s,i)=>(
-                <div key={i} style={{ flex:1, textAlign:"center", borderRight:i<3?`1px solid ${c.border}`:"none" }}>
+                <button key={i} onClick={s.onClick||undefined} disabled={!s.onClick} style={{ flex:1, textAlign:"center", borderRight:i<3?`1px solid ${c.border}`:"none", background:"transparent", border:"none", padding:"4px 0", cursor:s.onClick?"pointer":"default", borderTop:"none", borderBottom:"none", borderLeft:"none" }}>
                   <div style={{ fontSize:17, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
                   <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -1686,7 +2252,7 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
         {isOwn && (
           <div style={{ padding:"16px 20px 0", ...a(0.2) }}>
             <div style={{ background:"#F59E0B10", border:"1px solid #F59E0B33", borderRadius:12, padding:"12px 14px", display:"flex", gap:10, alignItems:"flex-start" }}>
-              <span style={{ fontSize:16 }}>⚠️</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               <div>
                 <div style={{ fontSize:12, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Sans',sans-serif", marginBottom:3 }}>BKM Beta</div>
                 <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>Prices are user-submitted and unverified. Features may change. Data may be reset.</div>
@@ -1755,6 +2321,68 @@ function LocationPage({ district, theme, lang, onBack, onUserTap }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FOLLOWING LIST — view people the current user follows, with quick unfollow
+// ─────────────────────────────────────────────────────────────────────────────
+function FollowingList({ theme, lang, onBack, onUserTap }) {
+  const c = TH[theme];
+  // Build the list from SESSION.following + USERS lookup
+  const [followingIds, setFollowingIds] = useState(Array.from(SESSION.following));
+
+  const unfollow = (id) => {
+    SESSION.following.delete(id);
+    setFollowingIds(Array.from(SESSION.following));
+  };
+
+  const followingUsers = followingIds
+    .map(id => USERS.find(u => u.id === id) || (id===0 ? getMe() : null))
+    .filter(Boolean);
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${c.border}`, flexShrink:0, display:"flex", alignItems:"center", gap:12 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>Following</div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{followingUsers.length} {followingUsers.length===1?"person":"people"}</div>
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"14px 16px 24px" }}>
+        {followingUsers.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"60px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:14 }}>
+            <div style={{ width:60, height:60, borderRadius:18, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+            </div>
+            <div>
+              <div style={{ fontSize:15, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>You're not following anyone yet</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, maxWidth:240 }}>Tap a username on any post and follow them to see their deals first.</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {followingUsers.map(u => (
+              <div key={u.id} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, padding:"10px 12px", display:"flex", alignItems:"center", gap:12 }}>
+                <button onClick={()=>onUserTap && onUserTap(u)} style={{ display:"flex", alignItems:"center", gap:10, flex:1, background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
+                  <Avatar user={u} size={38}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                      <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{u.username}</span>
+                      {u.founder && <span style={{ fontSize:8, fontWeight:800, color:"#FFFFFF", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", borderRadius:4, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>FOUNDER</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.caption || `${RANK_LABELS[u.rank]||""} · ${u.followers||0} followers`}</div>
+                  </div>
+                </button>
+                <button onClick={()=>unfollow(u.id)} style={{ padding:"7px 14px", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:9, fontSize:11, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Unfollow</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SEARCH TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
@@ -1769,52 +2397,150 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
 
   const getResults = (q) => {
     const query = q.toLowerCase().trim();
-    const words = query.split(/\s+/);
-    const allResults = Object.values(SEARCH_RESULTS).flat();
-    const scored = allResults.map(r => {
+    if (!query) return [];
+    const words = query.split(/\s+/).filter(w=>w.length>0);
+
+    // Build candidate result list from ALL live data sources:
+    // 1. Hardcoded SEARCH_RESULTS (curated demo data)
+    // 2. Live deals from feed (each item in each deal becomes a result)
+    // 3. Merchant listings posted via merchant portal
+    const candidates = [];
+
+    // From hardcoded search results
+    Object.values(SEARCH_RESULTS).flat().forEach(r => candidates.push({
+      ...r,
+      _source: "search",
+    }));
+
+    // From live deal feed (items inside posts)
+    DEALS.forEach(deal => {
+      deal.items.forEach(item => candidates.push({
+        item: item.n,
+        vendor: deal.place,
+        platform: deal.platform,
+        district: deal.district,
+        price: item.p,
+        deliveryFee: 0,
+        rating: (deal.ups / Math.max(1, deal.ups+deal.downs)) * 5,
+        verified: deal.verified !== false,
+        postedBy: deal.user.username,
+        rank: deal.user.rank,
+        img: deal.img,
+        _source: "feed",
+        _dealId: deal.id,
+      }));
+    });
+
+    // From merchant listings
+    MERCHANT_LISTINGS.forEach(listing => candidates.push({
+      item: listing.name,
+      vendor: listing.merchant,
+      platform: "store",
+      district: "",
+      price: listing.price,
+      deliveryFee: 0,
+      rating: 5,
+      verified: true,
+      postedBy: listing.merchant,
+      rank: 4,
+      img: "",
+      _source: "merchant",
+    }));
+
+    // Score every candidate
+    const scored = candidates.map(r => {
       let score = 0;
-      const itemName   = r.item.toLowerCase();
-      const vendorName = r.vendor.toLowerCase();
-      const platform   = r.platform.toLowerCase();
+      const itemName   = (r.item||"").toLowerCase();
+      const vendorName = (r.vendor||"").toLowerCase();
+      const platform   = (r.platform||"").toLowerCase();
+      const postedBy   = (r.postedBy||"").toLowerCase();
+
       words.forEach(w => {
-        if (itemName === query)          score += 100;
-        if (itemName.startsWith(w))      score += 60;
-        if (itemName.includes(w))        score += 40;
-        if (vendorName === query)        score += 80;
-        if (vendorName.startsWith(w))    score += 50;
-        if (vendorName.includes(w))      score += 30;
-        if (platform.includes(w))        score += 10;
-        if (r.postedBy?.toLowerCase().includes(w)) score += 70;
+        if (itemName === query)            score += 200;
+        if (itemName === w)                score += 100;
+        if (itemName.startsWith(w))        score += 60;
+        if (itemName.includes(w))          score += 40;
+        if (vendorName === query)          score += 100;
+        if (vendorName.startsWith(w))      score += 50;
+        if (vendorName.includes(w))        score += 30;
+        if (platform.includes(w))          score += 15;
+        if (postedBy === w)                score += 90;
+        if (postedBy.includes(w))          score += 50;
       });
+
+      // Merchant listings bonus — they pay to be on the platform
+      if (r._source === "merchant") score += 5;
+
       return { ...r, _score:score };
     });
-    return scored
-      .filter(r => r._score > 0 && r.verified !== false) // only BKM verified
+
+    // Deduplicate by item+vendor combo, keep highest scoring
+    const seen = new Map();
+    scored.forEach(r => {
+      const key = `${r.item}__${r.vendor}`;
+      if (!seen.has(key) || seen.get(key)._score < r._score) seen.set(key, r);
+    });
+
+    return Array.from(seen.values())
+      .filter(r => r._score > 0 && r.verified !== false)
       .sort((a,b) => b._score - a._score || a.price - b.price)
-      .slice(0, 8);
+      .slice(0, 12);
   };
 
-  // User search
+  // User search — searches across USERS array
   const getUserResults = (q) => {
     const query = q.toLowerCase().trim();
-    return USERS.filter(u =>
-      u.username.toLowerCase().includes(query) ||
-      (u.name && u.name.toLowerCase().includes(query)) ||
-      (u.caption && u.caption.toLowerCase().includes(query))
-    );
+    if (!query) return [];
+    const words = query.split(/\s+/);
+    return USERS
+      .map(u => {
+        let score = 0;
+        const uname = (u.username||"").toLowerCase();
+        const name  = (u.name||"").toLowerCase();
+        const cap   = (u.caption||"").toLowerCase();
+        words.forEach(w => {
+          if (uname === w)         score += 100;
+          if (uname.startsWith(w)) score += 60;
+          if (uname.includes(w))   score += 40;
+          if (name.includes(w))    score += 30;
+          if (cap.includes(w))     score += 10;
+        });
+        return { ...u, _score:score };
+      })
+      .filter(u => u._score > 0)
+      .sort((a,b) => b._score - a._score);
   };
 
-  // Location/restaurant search
+  // Location/store search across DEALS and MERCHANT_LISTINGS
   const getLocationResults = (q) => {
     const query = q.toLowerCase().trim();
-    return DEALS.filter(d =>
-      d.place.toLowerCase().includes(query) ||
-      d.district.toLowerCase().includes(query) ||
-      d.address.toLowerCase().includes(query)
-    ).reduce((acc, d) => {
-      if (!acc.find(x=>x.place===d.place)) acc.push(d);
-      return acc;
-    }, []);
+    if (!query) return [];
+    const words = query.split(/\s+/);
+
+    const dealMatches = DEALS
+      .map(d => {
+        let score = 0;
+        const place    = (d.place||"").toLowerCase();
+        const district = (d.district||"").toLowerCase();
+        const address  = (d.address||"").toLowerCase();
+        words.forEach(w => {
+          if (place === w)         score += 100;
+          if (place.startsWith(w)) score += 60;
+          if (place.includes(w))   score += 40;
+          if (district === w)      score += 80;
+          if (district.includes(w))score += 30;
+          if (address.includes(w)) score += 20;
+        });
+        return { ...d, _score:score };
+      })
+      .filter(d => d._score > 0);
+
+    // Deduplicate by place name
+    const seen = new Map();
+    dealMatches.forEach(d => {
+      if (!seen.has(d.place) || seen.get(d.place)._score < d._score) seen.set(d.place, d);
+    });
+    return Array.from(seen.values()).sort((a,b)=>b._score - a._score);
   };
 
   const doSearch = (q) => {
@@ -2074,11 +2800,11 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
                       </div>
                       <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                          <img src={`https://picsum.photos/seed/av${i+20}/18/18`} style={{ width:18, height:18, borderRadius:"50%", border:`1.5px solid ${RANK_COLORS[r.rank]}` }} onError={e=>e.target.style.display="none"}/>
+                          <ColorAvatar user={{username:r.postedBy, av:r.postedBy}} size={18}/>
                           <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>by <span style={{ color:c.text, fontWeight:600 }}>{r.postedBy}</span></span>
                           <span style={{ fontSize:9, fontWeight:700, color:RANK_COLORS[r.rank], fontFamily:"'DM Sans',sans-serif" }}>{RANK_LABELS[r.rank]}</span>
                         </div>
-                        <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>⭐ {r.rating}</span>
+                        <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{Number(r.rating||0).toFixed(1)}</span>
                       </div>
                       {best && (
                         <button style={{ marginTop:10, width:"100%", background:c.accent, border:"none", borderRadius:10, padding:"10px 0", fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
@@ -2545,11 +3271,12 @@ function BetaConsent({ theme, onAccept }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE SETUP — username + avatar
 // ─────────────────────────────────────────────────────────────────────────────
-const AVATAR_SEEDS = ["31","64","91","22","45","77","88","12","55","37","69","43","16","72","58","29"];
+// Unique avatar IDs — each maps to a unique color in palette
+const AVATAR_IDS = ["a1","a2","a3","a4","a5","a6","a7","a8","a9","a10","a11","a12"];
 
 function ProfileSetup({ theme, lang, onComplete }) {
   const [username, setUsername] = useState("");
-  const [avatar, setAvatar]     = useState("77");
+  const [avatar, setAvatar]     = useState("a1");
   const [checking, setChecking] = useState(false);
   const [taken, setTaken]       = useState(false);
   const [error, setError]       = useState("");
@@ -2594,21 +3321,44 @@ function ProfileSetup({ theme, lang, onComplete }) {
           <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>This is how the community will know you</div>
         </div>
 
-        {/* Avatar picker */}
+        {/* Avatar picker — colored initials, no duplicates, perfect circles */}
         <div style={{ ...a(0.08), marginBottom:24 }}>
-          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:12, fontFamily:"'DM Sans',sans-serif" }}>Pick your avatar</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(8,1fr)", gap:6 }}>
-            {AVATAR_SEEDS.map(seed=>(
-              <button key={seed} onClick={()=>setAvatar(seed)} style={{ width:"100%", paddingTop:"100%", position:"relative", borderRadius:"50%", border:`2.5px solid ${avatar===seed?c.accent:"transparent"}`, background:"none", cursor:"pointer", transition:"all 0.15s", boxShadow:avatar===seed?`0 0 10px ${c.accent}55`:"none" }}>
-                <img src={`https://picsum.photos/seed/av${seed}/48/48`} style={{ position:"absolute", inset:0, width:"100%", height:"100%", borderRadius:"50%", objectFit:"cover", display:"block" }} alt="" onError={e=>{e.target.style.background=`hsl(${parseInt(seed)*37},55%,55%)`;e.target.style.display="block";}}/>
-              </button>
-            ))}
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:12, fontFamily:"'DM Sans',sans-serif" }}>Pick a color</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:10 }}>
+            {AVATAR_PALETTE.map((col, idx) => {
+              const id = `a${idx+1}`;
+              const selected = avatar === id;
+              const initial = initialFrom(username || "?");
+              return (
+                <button
+                  key={id}
+                  onClick={()=>setAvatar(id)}
+                  style={{
+                    aspectRatio:"1/1", borderRadius:"50%", padding:0,
+                    background:col.bg,
+                    border:`3px solid ${selected ? c.accent : "transparent"}`,
+                    cursor:"pointer", transition:"all 0.18s cubic-bezier(0.34,1.56,0.64,1)",
+                    boxShadow: selected ? `0 0 0 2px ${c.bg}, 0 0 0 4px ${c.accent}` : "none",
+                    transform: selected ? "scale(1.08)" : "scale(1)",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                  }}
+                >
+                  <span style={{ fontSize:18, fontWeight:800, color:col.fg, fontFamily:"'DM Sans',sans-serif" }}>{initial}</span>
+                </button>
+              );
+            })}
           </div>
           {/* Preview */}
-          <div style={{ display:"flex", justifyContent:"center", marginTop:18 }}>
-            <div style={{ width:68, height:68, borderRadius:"50%", padding:3, background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", boxShadow:"0 4px 20px #1D6FEB44", flexShrink:0 }}>
-              <img src={`https://picsum.photos/seed/av${avatar}/62/62`} style={{ width:62, height:62, borderRadius:"50%", display:"block", objectFit:"cover" }} alt="" onError={e=>{e.target.style.background=`hsl(${parseInt(avatar)*37},55%,55%)`;}}/>
-            </div>
+          <div style={{ display:"flex", justifyContent:"center", marginTop:22 }}>
+            {(() => {
+              const idx = AVATAR_IDS.indexOf(avatar);
+              const col = AVATAR_PALETTE[idx>=0?idx:0];
+              return (
+                <div style={{ width:78, height:78, borderRadius:"50%", background:col.bg, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 8px 24px ${col.bg}55`, border:`3px solid ${c.bg}`, outline:`2px solid ${c.accent}` }}>
+                  <span style={{ fontSize:34, fontWeight:800, color:col.fg, fontFamily:"'DM Sans',sans-serif" }}>{initialFrom(username||"?")}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -2657,7 +3407,17 @@ function ProfileSetup({ theme, lang, onComplete }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function NotificationsScreen({ notifications, theme, onBack, onMarkRead }) {
   const c = TH[theme];
-  const icons = { reveal:"👁", upvote:"👍", follow:"👤", approve:"🎉", nearby:"📍" };
+  const renderIcon = (type, color) => {
+    const props = { width:18, height:18, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
+    switch(type) {
+      case "reveal":  return <svg {...props}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
+      case "upvote":  return <svg {...props} strokeWidth={2.4}><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.41-7.41A2 2 0 0 1 13.07 2H14a2 2 0 0 1 2 2v1.88z"/></svg>;
+      case "follow":  return <svg {...props}><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>;
+      case "approve": return <svg {...props} strokeWidth={2.6}><polyline points="20 6 9 17 4 12"/></svg>;
+      case "nearby":  return <svg {...props}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>;
+      default:        return <svg {...props}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>;
+    }
+  };
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ padding:"12px 20px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
@@ -2670,18 +3430,21 @@ function NotificationsScreen({ notifications, theme, onBack, onMarkRead }) {
       <div style={{ flex:1, overflowY:"auto" }}>
         {notifications.length === 0 ? (
           <div style={{ textAlign:"center", padding:"48px 24px", color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>No notifications yet</div>
-        ) : notifications.map((n,i) => (
-          <div key={n.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`${c.accent}05`, animation:`fu 0.3s ease ${i*0.04}s both` }}>
-            <div style={{ width:38, height:38, borderRadius:11, background:n.read?c.muted:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              <span style={{ fontSize:18 }}>{icons[n.type]||"🔔"}</span>
+        ) : notifications.map((n,i) => {
+          const tone = n.read ? c.sub : c.accent;
+          return (
+            <div key={n.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`${c.accent}05`, animation:`fu 0.3s ease ${i*0.04}s both` }}>
+              <div style={{ width:38, height:38, borderRadius:11, background:n.read?c.muted:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                {renderIcon(n.type, tone)}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", fontWeight:n.read?400:600, lineHeight:1.4 }}>{n.text}</div>
+                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{n.time} ago</div>
+              </div>
+              {!n.read && <div style={{ width:7, height:7, borderRadius:"50%", background:c.accent, flexShrink:0 }}/>}
             </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", fontWeight:n.read?400:600, lineHeight:1.4 }}>{n.text}</div>
-              <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{n.time} ago</div>
-            </div>
-            {!n.read && <div style={{ width:7, height:7, borderRadius:"50%", background:c.accent, flexShrink:0 }}/>}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2908,15 +3671,34 @@ export default function BKMApp() {
     if (pushedScreen?.type==="post")          return <PostDetail deal={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}/>;
     if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead}/>;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")}/>;
+    if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>go("partner")}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery}/>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
-    if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount}/>;
+    if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
     if (tab==="dev")     return <DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject}/>;
   };
 
+  // Inject PWA meta tags on mount so we don't need to touch index.html
+  useEffect(() => {
+    const metas = [
+      { name:"viewport", content:"width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" },
+      { name:"theme-color", content: c.bg },
+      { name:"apple-mobile-web-app-capable", content:"yes" },
+      { name:"mobile-web-app-capable", content:"yes" },
+      { name:"apple-mobile-web-app-status-bar-style", content:"default" },
+      { name:"apple-mobile-web-app-title", content:"BKM" },
+    ];
+    metas.forEach(m => {
+      let el = document.querySelector(`meta[name="${m.name}"]`);
+      if (!el) { el = document.createElement("meta"); el.setAttribute("name", m.name); document.head.appendChild(el); }
+      el.setAttribute("content", m.content);
+    });
+    document.title = "BKM — بكم";
+  }, [c.bg]);
+
   return (
-    <div style={{ width:"100vw", height:"100vh", height:"100dvh", background:c.bg, display:"flex", flexDirection:"column", fontFamily:"'DM Sans',sans-serif", overflow:"hidden" }}>
+    <div style={{ width:"100vw", height:"100dvh", background:c.bg, display:"flex", flexDirection:"column", fontFamily:"'DM Sans',sans-serif", overflow:"hidden", paddingTop:"env(safe-area-inset-top)", paddingBottom:"env(safe-area-inset-bottom)", paddingLeft:"env(safe-area-inset-left)", paddingRight:"env(safe-area-inset-right)" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Noto+Naskh Arabic:wght@400;500;600&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
@@ -2938,17 +3720,26 @@ export default function BKMApp() {
 
       <div style={{ width:"100%", height:"100%", background:c.bg, display:"flex", flexDirection:"column", transition:"background 0.35s ease", opacity:fading?0:1, overflow:"hidden" }}>
 
-      {/* ── Toast notifications ── */}
+      {/* Toast notifications */}
       {toasts.length > 0 && (
         <div style={{ position:"absolute", top:60, left:"50%", transform:"translateX(-50%)", zIndex:500, display:"flex", flexDirection:"column", gap:8, width:335, pointerEvents:"none" }}>
-          {toasts.map(t => (
-            <div key={t.id} style={{ background:theme==="dark"?"#1A1810":"#FFFFFF", border:`1px solid ${t.type==="upvote"?c.accent+"55":t.type==="approve"?"#16A34A55":"#8B003855"}`, borderRadius:14, padding:"10px 14px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 4px 20px rgba(0,0,0,0.2)", animation:"slideDown 0.35s cubic-bezier(0.34,1.2,0.64,1) both" }}>
-              <div style={{ width:32, height:32, borderRadius:9, background:t.type==="upvote"?`${c.accent}15`:t.type==="approve"?"#16A34A15":"#8B003815", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <span style={{ fontSize:15 }}>{t.type==="upvote"?"👍":t.type==="approve"?"🎉":"👁"}</span>
+          {toasts.map(t => {
+            const tone = t.type==="upvote" ? c.accent : t.type==="approve" ? "#16A34A" : "#8B0038";
+            const tintBg = t.type==="upvote" ? `${c.accent}15` : t.type==="approve" ? "#16A34A15" : "#8B003815";
+            const Icon = (() => {
+              if (t.type==="upvote")  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={tone} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.41-7.41A2 2 0 0 1 13.07 2H14a2 2 0 0 1 2 2v1.88z"/></svg>;
+              if (t.type==="approve") return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={tone} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
+              return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={tone} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
+            })();
+            return (
+              <div key={t.id} style={{ background:theme==="dark"?"#1A1810":"#FFFFFF", border:`1px solid ${tone}55`, borderRadius:14, padding:"10px 14px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 4px 20px rgba(0,0,0,0.2)", animation:"slideDown 0.35s cubic-bezier(0.34,1.2,0.64,1) both" }}>
+                <div style={{ width:30, height:30, borderRadius:9, background:tintBg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                  {Icon}
+                </div>
+                <span style={{ fontSize:12, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", flex:1 }}>{t.msg}</span>
               </div>
-              <span style={{ fontSize:12, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", flex:1 }}>{t.msg}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2965,26 +3756,31 @@ export default function BKMApp() {
 
         {/* Screens */}
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-          {screen==="opening"    && <Opening onStart={()=>go("register")} onLogin={()=>go("login")} onDev={()=>{
-            SESSION.loggedIn=true; SESSION.isAdmin=true; SESSION.isFounder=true;
-            CURRENT_USER = ME; // dev bypass = founder
-            setIsAdmin(true); go("feed");
-          }} themeMode={themeMode} setThemeMode={setThemeMode} theme={theme} lang={lang} setLang={setLang}/>}
-          {screen==="register"   && <Register theme={theme} lang={lang} onNext={()=>go("otp")} onBack={()=>go("opening")} onLogin={()=>go("login")}/>}
-          {screen==="login"      && <Login    theme={theme} lang={lang} onNext={()=>go("otp")} onBack={()=>go("opening")} onRegister={()=>go("register")}/>}
-          {screen==="otp"        && <OTP      theme={theme} lang={lang} onVerify={()=>{ SESSION.tosAccepted?go("feed"):go("consent"); }} onBack={()=>go("register")}/>}
-          {screen==="consent"    && <BetaConsent theme={theme} onAccept={()=>{ SESSION.tosAccepted=true; go("profile"); }}/>}
-          {screen==="profile"    && <ProfileSetup theme={theme} lang={lang} onComplete={(data)=>{
+          {screen==="opening"    && <Opening
+            onStart={()=>go("register")}
+            onLogin={()=>go("login")}
+            onMerchant={()=>go("merchantLogin")}
+            onDev={()=>{
+              SESSION.loggedIn=true; SESSION.isAdmin=true; SESSION.isFounder=true;
+              CURRENT_USER = ME;
+              setIsAdmin(true); go("feed");
+            }}
+            themeMode={themeMode} setThemeMode={setThemeMode} theme={theme} lang={lang} setLang={setLang}
+          />}
+          {screen==="register"      && <Register theme={theme} lang={lang} onNext={()=>go("otp")} onBack={()=>go("opening")} onLogin={()=>go("login")}/>}
+          {screen==="login"         && <Login    theme={theme} lang={lang} onNext={()=>go("otp")} onBack={()=>go("opening")} onRegister={()=>go("register")}/>}
+          {screen==="otp"           && <OTP      theme={theme} lang={lang} onVerify={()=>{ SESSION.tosAccepted?go("feed"):go("consent"); }} onBack={()=>go("register")}/>}
+          {screen==="consent"       && <BetaConsent theme={theme} onAccept={()=>{ SESSION.tosAccepted=true; go("profile"); }}/>}
+          {screen==="profile"       && <ProfileSetup theme={theme} lang={lang} onComplete={(data)=>{
             SESSION.profileSetup=true;
-            // Create a regular (non-founder) user from their registration
-            CURRENT_USER = {
-              id:0, username:data.username, name:null, av:data.avatar,
-              rank:0, founder:false, caption:"", deals:0, followers:0
-            };
+            CURRENT_USER = { id:0, username:data.username, name:null, av:data.avatar, rank:0, founder:false, caption:"", deals:0, followers:0 };
             go("onboarding");
           }}/>}
-          {screen==="onboarding" && <Onboarding theme={theme} onComplete={(interests)=>{ SESSION.loggedIn=true; SESSION.interests=interests||[]; go("feed"); }}/>}
-          {screen==="feed"       && renderTab()}
+          {screen==="onboarding"    && <Onboarding theme={theme} onComplete={(interests)=>{ SESSION.loggedIn=true; SESSION.interests=interests||[]; go("feed"); }}/>}
+          {screen==="merchantLogin" && <MerchantLogin theme={theme} lang={lang} onLogin={()=>{ SESSION.loggedIn=true; go("merchantPortal"); }} onBack={()=>go("opening")} onApply={()=>go("partner")}/>}
+          {screen==="merchantPortal"&& <MerchantPortal theme={theme} lang={lang} onSignOut={()=>{ SESSION.isMerchant=false; SESSION.loggedIn=false; go("opening"); }}/>}
+          {screen==="partner"       && <PartnerRequest theme={theme} lang={lang} onBack={()=>go(SESSION.isMerchant?"merchantLogin":"feed")} onSubmitted={()=>go(SESSION.loggedIn?"feed":"opening")}/>}
+          {screen==="feed"          && renderTab()}
         </div>
 
         {/* Bottom nav — 4 tabs, split with divider */}
