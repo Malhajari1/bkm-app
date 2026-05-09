@@ -597,9 +597,33 @@ const Ico = {
 // Shared button
 function Btn({ onClick, children, theme, outline=false, small=false, style={} }) {
   const c = TH[theme];
+  const [pressed, setPressed] = useState(false);
   return (
-    <button onClick={onClick} style={{ width:"100%", padding:small?"10px 0":"15px 0", background:outline?"transparent":c.btnBg, color:outline?c.text:c.btnText, border:outline?`1.5px solid ${c.border}`:"none", borderRadius:14, fontSize:small?13:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", letterSpacing:"0.01em", transition:"opacity 0.15s", ...style }}
-      onMouseOver={e=>e.currentTarget.style.opacity="0.82"} onMouseOut={e=>e.currentTarget.style.opacity="1"}
+    <button
+      onClick={(e)=>{ sfx.tap(); onClick && onClick(e); }}
+      onPointerDown={()=>setPressed(true)}
+      onPointerUp={()=>setPressed(false)}
+      onPointerLeave={()=>setPressed(false)}
+      style={{
+        width:"100%",
+        padding:small?"10px 0":"15px 0",
+        background:outline?"transparent":c.btnBg,
+        color:outline?c.text:c.btnText,
+        border:outline?`1.5px solid ${c.border}`:"none",
+        borderRadius:14,
+        fontSize:small?13:14,
+        fontWeight:700,
+        fontFamily:"'DM Sans',sans-serif",
+        cursor:"pointer",
+        letterSpacing:"0.01em",
+        transform: pressed ? "scale(0.97)" : "scale(1)",
+        boxShadow: outline ? "none" : (pressed ? "0 1px 4px rgba(0,0,0,0.08)" : "0 4px 14px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08)"),
+        transition: "transform 0.12s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s ease, background 0.18s ease",
+        WebkitTapHighlightColor: "transparent",
+        ...style
+      }}
+      onMouseOver={e=>{ if(!outline){ e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,0.18), 0 2px 4px rgba(0,0,0,0.08)"; } }}
+      onMouseOut={e=>{ if(!outline){ e.currentTarget.style.boxShadow = "0 4px 14px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08)"; } }}
     >{children}</button>
   );
 }
@@ -666,7 +690,13 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
 
         {/* Merchant sign-in */}
         <div style={{ ...a(0.32) }}>
-          <button onClick={onMerchant} style={{ width:"100%", padding:"13px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:14, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          <button
+            onClick={()=>{ sfx.tap(); onMerchant(); }}
+            onPointerDown={e=>{ e.currentTarget.style.transform="scale(0.97)"; e.currentTarget.style.background=c.muted; }}
+            onPointerUp={e=>{ e.currentTarget.style.transform="scale(1)"; e.currentTarget.style.background="transparent"; }}
+            onPointerLeave={e=>{ e.currentTarget.style.transform="scale(1)"; e.currentTarget.style.background="transparent"; }}
+            style={{ width:"100%", padding:"13px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:14, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8, transition:"transform 0.12s cubic-bezier(0.34,1.56,0.64,1), background 0.18s ease", WebkitTapHighlightColor:"transparent" }}
+          >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9h18v10a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path d="M3 9l2-5h14l2 5"/><line x1="12" y1="14" x2="12" y2="17"/></svg>
             {lang==="ar"?"دخول التاجر":"Merchant Sign In"}
           </button>
@@ -2107,10 +2137,18 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             </div>
             <span style={{ fontSize:9, fontWeight:700, color:"#F59E0B", background:"#F59E0B18", border:"1px solid #F59E0B44", borderRadius:5, padding:"2px 6px", fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:6, background:c.muted, border:`1px solid ${c.border}`, borderRadius:14, padding:"5px 10px 5px 8px", cursor:"default" }} title={energy < MAX_ENERGY ? `Refills 1 every 2h · Next in ${getTimeToNextRefill()||"soon"}` : "Energy full"}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill={energy>0?c.accent:c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
-            <span style={{ fontSize:13, fontWeight:800, color:energy>0?c.text:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{energy}</span>
-            <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>/ {MAX_ENERGY}</span>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            {SESSION.streak > 0 && (
+              <div style={{ display:"flex", alignItems:"center", gap:4, background:`${c.accent}10`, border:`1px solid ${c.accent}33`, borderRadius:14, padding:"5px 9px 5px 7px" }} title={`${SESSION.streak}-day streak${SESSION.bestStreak>SESSION.streak?` · Best: ${SESSION.bestStreak}`:""}`}>
+                <svg width="12" height="14" viewBox="0 0 24 24" fill="#FF6B35"><path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/></svg>
+                <span style={{ fontSize:12, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{SESSION.streak}</span>
+              </div>
+            )}
+            <div style={{ display:"flex", alignItems:"center", gap:6, background:c.muted, border:`1px solid ${c.border}`, borderRadius:14, padding:"5px 10px 5px 8px", cursor:"default" }} title={energy < MAX_ENERGY ? `Refills 1 every 2h · Next in ${getTimeToNextRefill()||"soon"}` : "Energy full"}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={energy>0?c.accent:c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
+              <span style={{ fontSize:13, fontWeight:800, color:energy>0?c.text:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{energy}</span>
+              <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>/ {MAX_ENERGY}</span>
+            </div>
           </div>
         </div>
 
@@ -3844,9 +3882,20 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
         {/* Support */}
         <Section title="Support"/>
         <div style={{ background:c.surface, borderTop:`1px solid ${c.border}`, borderBottom:`1px solid ${c.border}` }}>
-          <Row label="Contact Us"     sub="hello@bmk.qa"    right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{}}/>
-          <Row label="Report a Bug"   sub="Help us improve" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{}}/>
-          <Row label="Request a Feature" sub="Tell us what you want" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{}} border={false}/>
+          <Row label="Contact Us"     sub="hello@bkm.qa"    right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{
+            sfx.tap();
+            try { navigator.clipboard?.writeText("hello@bkm.qa"); } catch(e){}
+            window.location.href = "mailto:hello@bkm.qa?subject=BKM%20Support";
+          }}/>
+          <Row label="Report a Bug"   sub="Help us improve" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{
+            sfx.tap();
+            const body = "What happened:\n\nWhat you expected:\n\nDevice/Browser: " + (navigator.userAgent||"") + "\n";
+            window.location.href = "mailto:hello@bkm.qa?subject=BKM%20Bug%20Report&body=" + encodeURIComponent(body);
+          }}/>
+          <Row label="Request a Feature" sub="Tell us what you want" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{
+            sfx.tap();
+            window.location.href = "mailto:hello@bkm.qa?subject=BKM%20Feature%20Request&body=I%20would%20love%20to%20see%3A%0A%0AWhy%20it%20matters%3A%0A";
+          }} border={false}/>
         </div>
 
         {/* FAQs */}
@@ -3899,6 +3948,7 @@ export default function BKMApp() {
   const [pendingPosts, setPending]  = useState(PENDING_POSTS_INIT); // shared review queue
   const [feedQuery, setFeedQuery]   = useState("");
   const [postPrefill, setPostPrefill] = useState(null);
+  const [partnerOrigin, setPartnerOrigin] = useState(null);
   const [isAdmin, setIsAdmin]       = useState(SESSION.isAdmin);
   const [newPostId, setNewPostId]   = useState(200);
 
@@ -3911,10 +3961,24 @@ export default function BKMApp() {
   const signOut = () => {
     SESSION.loggedIn = false;
     SESSION.isAdmin  = false;
+    SESSION.isFounder = false;
+    SESSION.isMerchant = false;
+    SESSION.merchantName = "";
+    SESSION.merchantCategory = "";
     SESSION.tosAccepted = false;
     SESSION.profileSetup = false;
+    SESSION.username = "";
+    SESSION.interests = [];
+    SESSION.following = new Set();
+    SESSION.claimed = new Set();
+    SESSION.tutorialSeen = false;
+    SESSION.locPerm = "pending";
+    SESSION.hasLoc = "";
+    CURRENT_USER = null;
     setIsAdmin(false);
     setPushed(null);
+    setTab("feed");
+    setPartnerOrigin(null);
     go("opening");
   };
 
@@ -3984,7 +4048,7 @@ export default function BKMApp() {
     if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead}/>;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>go("partner")} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery}/>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
     if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
@@ -4094,9 +4158,15 @@ export default function BKMApp() {
             go("onboarding");
           }}/>}
           {screen==="onboarding"    && <Onboarding theme={theme} onComplete={(interests)=>{ SESSION.loggedIn=true; SESSION.interests=interests||[]; go("feed"); }}/>}
-          {screen==="merchantLogin" && <MerchantLogin theme={theme} lang={lang} onLogin={()=>{ SESSION.loggedIn=true; go("merchantPortal"); }} onBack={()=>go("opening")} onApply={()=>go("partner")}/>}
-          {screen==="merchantPortal"&& <MerchantPortal theme={theme} lang={lang} onSignOut={()=>{ SESSION.isMerchant=false; SESSION.loggedIn=false; go("opening"); }}/>}
-          {screen==="partner"       && <PartnerRequest theme={theme} lang={lang} onBack={()=>go(SESSION.isMerchant?"merchantLogin":"feed")} onSubmitted={()=>go(SESSION.loggedIn?"feed":"opening")}/>}
+          {screen==="merchantLogin" && <MerchantLogin theme={theme} lang={lang} onLogin={()=>{ SESSION.loggedIn=true; go("merchantPortal"); }} onBack={()=>go("opening")} onApply={()=>{ setPartnerOrigin("merchantLogin"); go("partner"); }}/>}
+          {screen==="merchantPortal"&& <MerchantPortal theme={theme} lang={lang} onSignOut={()=>{ SESSION.isMerchant=false; SESSION.loggedIn=false; SESSION.merchantName=""; SESSION.merchantCategory=""; go("opening"); }}/>}
+          {screen==="partner"       && <PartnerRequest theme={theme} lang={lang} onBack={()=>{
+            const target = partnerOrigin === "merchantLogin" ? "merchantLogin" : (SESSION.loggedIn ? "feed" : "opening");
+            go(target);
+          }} onSubmitted={()=>{
+            const target = partnerOrigin === "merchantLogin" ? "merchantLogin" : (SESSION.loggedIn ? "feed" : "opening");
+            go(target);
+          }}/>}
           {screen==="feed"          && renderTab()}
         </div>
 
