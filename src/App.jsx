@@ -3,15 +3,110 @@ import React, { useState, useEffect, useRef } from "react";
 // ─────────────────────────────────────────────────────────────────────────────
 // SESSION + THEME
 // ─────────────────────────────────────────────────────────────────────────────
+const MAX_ENERGY      = 10;
+const REFILL_INTERVAL = 2 * 60 * 60 * 1000; // 1 reveal every 2 hours
+const SHARE_BONUS_CAP = 3;                  // Max +3/day from sharing
+
+const todayKey = () => new Date().toISOString().slice(0,10);
+
 const SESSION = {
-  loggedIn:false, locPerm:"pending", hasLoc:"", revealsCount:0,
+  loggedIn:false, locPerm:"pending", hasLoc:"",
   tutorialSeen:false, claimed:new Set(), tosAccepted:false,
   profileSetup:false, username:"", avatar:"a1", isAdmin:false,
   isFounder:false,
   isMerchant:false, merchantName:"", merchantCategory:"",
   interests:[],
-  following:new Set(), // userIds the current user follows
-  feedFilter:"foryou", // "foryou" or "following"
+  following:new Set(),
+  feedFilter:"foryou",
+
+  // === Reveal Energy System ===
+  revealEnergy: MAX_ENERGY,            // current available reveals
+  lastEnergyUpdate: Date.now(),        // last time energy was modified
+  sharesUsedToday: 0,                  // counts toward SHARE_BONUS_CAP
+  lastDailyBonusDate: "",              // date of last +5 daily login bonus
+
+  // === Streak System ===
+  lastRevealDate: "",                  // YYYY-MM-DD of last reveal
+  streak: 0,                           // consecutive daily reveal streak
+  bestStreak: 0,                       // personal best
+  shareDateKey: "",                    // resets sharesUsedToday at day rollover
+
+  // === Preferences ===
+  soundEnabled: true,
+};
+
+// === Energy helpers ===
+const calculateCurrentEnergy = () => {
+  const now = Date.now();
+  const elapsed = now - (SESSION.lastEnergyUpdate || now);
+  const refills = Math.floor(elapsed / REFILL_INTERVAL);
+  if (refills > 0 && SESSION.revealEnergy < MAX_ENERGY) {
+    SESSION.revealEnergy = Math.min(MAX_ENERGY, SESSION.revealEnergy + refills);
+    SESSION.lastEnergyUpdate = SESSION.lastEnergyUpdate + refills * REFILL_INTERVAL;
+  }
+  return SESSION.revealEnergy;
+};
+
+const consumeReveal = () => {
+  calculateCurrentEnergy();
+  if (SESSION.revealEnergy <= 0) return false;
+  SESSION.revealEnergy -= 1;
+  if (SESSION.revealEnergy === MAX_ENERGY - 1) SESSION.lastEnergyUpdate = Date.now(); // start refill clock
+  return true;
+};
+
+const earnReveals = (amount) => {
+  calculateCurrentEnergy();
+  SESSION.revealEnergy = Math.min(MAX_ENERGY, SESSION.revealEnergy + amount);
+  return SESSION.revealEnergy;
+};
+
+const claimDailyBonus = () => {
+  const today = todayKey();
+  if (SESSION.lastDailyBonusDate === today) return 0;
+  SESSION.lastDailyBonusDate = today;
+  earnReveals(5);
+  return 5;
+};
+
+const tryShareBonus = () => {
+  const today = todayKey();
+  if (SESSION.shareDateKey !== today) {
+    SESSION.shareDateKey = today;
+    SESSION.sharesUsedToday = 0;
+  }
+  if (SESSION.sharesUsedToday >= SHARE_BONUS_CAP) return 0;
+  SESSION.sharesUsedToday += 1;
+  earnReveals(1);
+  return 1;
+};
+
+const getTimeToNextRefill = () => {
+  if (SESSION.revealEnergy >= MAX_ENERGY) return null;
+  const now = Date.now();
+  const elapsed = now - (SESSION.lastEnergyUpdate || now);
+  const remaining = REFILL_INTERVAL - (elapsed % REFILL_INTERVAL);
+  const totalSecs = Math.max(0, Math.floor(remaining / 1000));
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
+// === Streak helpers ===
+const updateStreakOnReveal = () => {
+  const today = todayKey();
+  const last  = SESSION.lastRevealDate;
+  if (last === today) return; // already counted today
+  if (!last) { SESSION.streak = 1; }
+  else {
+    const lastDate  = new Date(last);
+    const todayDate = new Date(today);
+    const diffDays  = Math.round((todayDate - lastDate) / (1000*60*60*24));
+    if (diffDays === 1) SESSION.streak += 1;
+    else                SESSION.streak  = 1; // broken
+  }
+  SESSION.lastRevealDate = today;
+  if (SESSION.streak > SESSION.bestStreak) SESSION.bestStreak = SESSION.streak;
 };
 
 // Shared mutable lists (in production: Firestore collections)
@@ -20,6 +115,53 @@ const MERCHANT_LISTINGS = [];  // products posted by merchants
 
 // Current logged-in user — set at login time, not hardcoded
 let CURRENT_USER = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOUND EFFECTS — Web Audio synthesis (no files, no copyright, instant)
+// ─────────────────────────────────────────────────────────────────────────────
+let _audioCtx = null;
+const getAudio = () => {
+  if (typeof window === "undefined") return null;
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; }
+  }
+  if (_audioCtx.state === "suspended") _audioCtx.resume().catch(()=>{});
+  return _audioCtx;
+};
+
+const playTone = (freq, durationMs, type="sine", peakGain=0.07, freqEnd=null) => {
+  if (!SESSION.soundEnabled) return;
+  const ctx = getAudio();
+  if (!ctx) return;
+  try {
+    const t0 = ctx.currentTime;
+    const dur = durationMs / 1000;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (freqEnd) osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), t0 + dur);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(peakGain, t0 + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  } catch(e){}
+};
+
+const sfx = {
+  reveal:    () => { playTone(800, 90, "sine", 0.10, 1400); setTimeout(()=>playTone(1500, 70, "sine", 0.06), 90); },
+  earn:      () => { [800,1000,1300].forEach((f,i)=>setTimeout(()=>playTone(f, 60, "triangle", 0.07), i*55)); },
+  voteUp:    () => playTone(700, 80, "sine", 0.08, 950),
+  voteDown:  () => playTone(380, 100, "sine", 0.07, 280),
+  bookmark:  () => playTone(1500, 50, "sine", 0.06),
+  success:   () => { [523,659,784].forEach((f,i)=>setTimeout(()=>playTone(f, 90, "triangle", 0.06), i*65)); },
+  error:     () => playTone(380, 180, "sine", 0.05, 250),
+  tap:       () => playTone(1800, 14, "sine", 0.025),
+  streak:    () => { [659,784,988,1175].forEach((f,i)=>setTimeout(()=>playTone(f, 80, "triangle", 0.07), i*70)); },
+  whoosh:    () => playTone(2200, 60, "sine", 0.04, 800),
+};
 
 const getMe = () => CURRENT_USER || ME;
 
@@ -106,7 +248,47 @@ const RANKS = [
 ];
 
 const RANK_LABELS = ["Scout","Finder","Hunter","Tracker","Elite"];
-const RANK_COLORS = ["#5A4530","#8B003866","#8B0038","#C9892A","#FFD700"];
+const RANK_COLORS = ["#A0907A","#6B5B4A","#8B0038","#FFFFFF","#FFFFFF"];
+
+// Qatar districts
+const AREAS = ["The Pearl","West Bay","Lusail","Al Waab","Msheireb","Al Hilal","Madinat Khalifa","Al Sadd","Old Airport","Al Wakra"];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIER BADGE — Option B (BKM Brand Ladder)
+// Visually escalates: dashed outline → solid outline → tinted maroon → solid maroon → maroon-to-gold gradient
+// Founder gets the blue gradient (separate from the credibility ladder)
+// ─────────────────────────────────────────────────────────────────────────────
+const TIER_STYLES = [
+  // 0 SCOUT — outlined dashed (lightest)
+  { background:"transparent", color:"#A0907A", border:"1px dashed #A0907A" },
+  // 1 FINDER — solid outline
+  { background:"transparent", color:"#6B5B4A", border:"1px solid #A0907A" },
+  // 2 HUNTER — tinted maroon
+  { background:"rgba(139,0,56,0.10)", color:"#8B0038", border:"1px solid rgba(139,0,56,0.27)" },
+  // 3 TRACKER — solid maroon
+  { background:"#8B0038", color:"#FFFFFF", border:"1px solid #8B0038" },
+  // 4 ELITE — maroon to gold gradient (most premium credibility tier)
+  { background:"linear-gradient(135deg,#8B0038,#C9892A)", color:"#FFFFFF", border:"1px solid transparent" },
+];
+
+const FOUNDER_STYLE = { background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", color:"#FFFFFF", border:"1px solid transparent" };
+
+function TierBadge({ user, size="sm" }) {
+  const isFounder = user?.founder;
+  const tier = user?.rank ?? 0;
+  const style = isFounder ? FOUNDER_STYLE : TIER_STYLES[Math.max(0, Math.min(4, tier))];
+  const label = isFounder ? "FOUNDER" : (RANK_LABELS[tier] || "Scout").toUpperCase();
+  const dims = size === "sm"
+    ? { fontSize:9,  padding:"2px 7px", borderRadius:5,  letterSpacing:"0.06em" }
+    : { fontSize:10, padding:"3px 9px", borderRadius:6,  letterSpacing:"0.08em" };
+  return (
+    <span style={{
+      display:"inline-flex", alignItems:"center", gap:4, lineHeight:1.5,
+      fontFamily:"'DM Sans',sans-serif", fontWeight:800,
+      ...dims, ...style,
+    }}>{label}</span>
+  );
+}
 
 function getRankBorderStyle(tier) {
   if (tier === 0) return { border:"1px solid #2A2018",      shadow:"none",                            grad:null };
@@ -889,7 +1071,7 @@ function MerchantLogin({ theme, lang, onLogin, onBack, onApply }) {
 
         <div style={{ textAlign:"center", padding:"20px 0 0", marginTop:"auto" }}>
           <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>Not a merchant yet?</div>
-          <button onClick={onApply} style={{ background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:12, padding:"11px 22px", fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
+          <button type="button" onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); onApply && onApply(); }} style={{ background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:12, padding:"11px 22px", fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", WebkitTapHighlightColor:"transparent" }}>
             Apply to be a Partner
           </button>
         </div>
@@ -903,6 +1085,7 @@ function MerchantLogin({ theme, lang, onLogin, onBack, onApply }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function PartnerRequest({ theme, lang, onBack, onSubmitted }) {
   const [businessName, setBusinessName] = useState("");
+  const [crNumber, setCrNumber]         = useState("");
   const [category, setCategory]         = useState("");
   const [contactName, setContactName]   = useState("");
   const [phone, setPhone]               = useState("");
@@ -915,13 +1098,14 @@ function PartnerRequest({ theme, lang, onBack, onSubmitted }) {
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
 
-  const ready = businessName && category && contactName && phone && email && district;
+  const crValid    = crNumber.length >= 4 && crNumber.length <= 8;
+  const ready = businessName && crValid && category && contactName && phone && email && district;
 
   const handleSubmit = () => {
     if (!ready) return;
     PARTNER_REQUESTS.push({
       id: Date.now(),
-      businessName, category, contactName, phone, email, district, message,
+      businessName, crNumber, category, contactName, phone, email, district, message,
       submittedAt: new Date().toISOString(),
       status: "pending",
     });
@@ -962,6 +1146,23 @@ function PartnerRequest({ theme, lang, onBack, onSubmitted }) {
           <div>
             <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Business Name *</div>
             <input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Your business name" style={inp(c)}/>
+          </div>
+          <div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>Commercial Registration (CR) Number *</div>
+            </div>
+            <input
+              value={crNumber}
+              onChange={e=>setCrNumber(e.target.value.replace(/\D/g,"").slice(0,8))}
+              placeholder="e.g. 123456"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              type="tel"
+              style={{ ...inp(c), borderColor: crNumber && !crValid ? c.accent : c.inputBorder }}
+            />
+            <div style={{ fontSize:10, color: crNumber && !crValid ? c.accent : c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:5, lineHeight:1.4 }}>
+              {crNumber && !crValid ? "CR number must be 4-8 digits" : "Your Qatar Commercial Registration number issued by MoCI"}
+            </div>
           </div>
           <div>
             <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Category *</div>
@@ -1326,7 +1527,7 @@ const PLATFORM_META = {
   store:   { color:"#B8860B", label:"In Store" },
 };
 
-function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false }) {
+function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, onShareBonus, onPostBetter }) {
   const [priceAnim, setPriceAnim]   = useState(false);
   const [upAnim, setUpAnim]         = useState(false);
   const [downAnim, setDownAnim]     = useState(false);
@@ -1352,14 +1553,15 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   };
 
   const handleVote = (dir) => {
-    if (dir === "up")   { setUpAnim(true);   setTimeout(()=>setUpAnim(false), 600); }
-    if (dir === "down") { setDownAnim(true);  setTimeout(()=>setDownAnim(false), 500); }
+    if (dir === "up")   { setUpAnim(true);   setTimeout(()=>setUpAnim(false), 600); sfx.voteUp(); }
+    if (dir === "down") { setDownAnim(true); setTimeout(()=>setDownAnim(false), 500); sfx.voteDown(); }
     onVote(deal.id, dir);
   };
 
   const handleBookmark = () => {
     setBmarkAnim(true);
     setTimeout(()=>setBmarkAnim(false), 600);
+    sfx.bookmark();
     onBookmark(deal.id);
   };
 
@@ -1390,14 +1592,11 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
               <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{deal.user.username}</span>
-              {isFounder && (
-                <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", borderRadius:5, padding:"1px 6px", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>FOUNDER</span>
-              )}
+              <TierBadge user={deal.user} size="sm"/>
               {betaBadge && (
                 <span style={{ fontSize:9, fontWeight:800, color:betaBadge.color, background:betaBadge.bg, border:`1px solid ${betaBadge.border}`, borderRadius:5, padding:"1px 6px", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.06em" }}>β {betaBadge.label}</span>
               )}
               {deal.verified && <span style={{ fontSize:9, fontWeight:700, color:c.accent, background:`${c.accent}15`, border:`1px solid ${c.accent}30`, borderRadius:5, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>VERIFIED</span>}
-              {!isFounder && <span style={{ fontSize:9, fontWeight:700, color:RANK_COLORS[rank], fontFamily:"'DM Sans',sans-serif" }}>{RANKS[rank]?.label}</span>}
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:3, flexWrap:"wrap" }}>
               <div style={{ display:"inline-flex", alignItems:"center", gap:3, background:`${PM.color}18`, border:`1px solid ${PM.color}44`, borderRadius:6, padding:"2px 7px" }}>
@@ -1428,22 +1627,25 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
         {/* Reveal / revealed */}
         {!claimed ? (
           <div style={{ marginBottom:11 }}>
-            {limitReached ? (
-              <div style={{ background:c.muted, borderRadius:12, padding:"12px 14px", textAlign:"center" }}>
-                <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Daily reveal limit reached · Come back tomorrow</span>
-              </div>
-            ) : (
-              <button onClick={handleClaim} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:10, background:c.accent, border:"none", borderRadius:12, padding:"14px 0", cursor:"pointer", boxShadow:`0 4px 20px ${c.accent}44`, transition:"transform 0.12s, box-shadow 0.12s", animation:revealAnim?"upBurst 0.4s ease both":"none" }}
-                onMouseOver={e=>{e.currentTarget.style.transform="scale(1.02)";e.currentTarget.style.boxShadow=`0 8px 28px ${c.accent}66`;}}
-                onMouseOut={e=>{e.currentTarget.style.transform="scale(1)";e.currentTarget.style.boxShadow=`0 4px 20px ${c.accent}44`;}}
-              >
-                <TagMark size={20} fill="#FFFFFF" holeBg={c.accent}/>
-                <div style={{ textAlign:"left" }}>
-                  <div style={{ fontSize:16, fontWeight:900, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.08em" }}>BKM</div>
-                  <div style={{ fontSize:10, color:"rgba(255,255,255,0.55)", fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>{claimCount} people already revealed this</div>
-                </div>
-              </button>
-            )}
+            <button onClick={handleClaim} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:10, background:limitReached?c.muted:c.accent, border:limitReached?`1px dashed ${c.border}`:"none", borderRadius:12, padding:"14px 0", cursor:"pointer", boxShadow:limitReached?"none":`0 4px 20px ${c.accent}44`, transition:"transform 0.12s, box-shadow 0.12s", animation:revealAnim?"upBurst 0.4s ease both":"none" }}
+              onMouseOver={e=>{ if(!limitReached){ e.currentTarget.style.transform="scale(1.02)"; e.currentTarget.style.boxShadow=`0 8px 28px ${c.accent}66`; } }}
+              onMouseOut={e=>{ if(!limitReached){ e.currentTarget.style.transform="scale(1)"; e.currentTarget.style.boxShadow=`0 4px 20px ${c.accent}44`; } }}
+            >
+              {limitReached ? (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill={c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
+                  <span style={{ fontSize:13, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Out of reveals · Tap to earn more</span>
+                </>
+              ) : (
+                <>
+                  <TagMark size={20} fill="#FFFFFF" holeBg={c.accent}/>
+                  <div style={{ textAlign:"left" }}>
+                    <div style={{ fontSize:16, fontWeight:900, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.08em" }}>BKM</div>
+                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.55)", fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>{claimCount} people already revealed this</div>
+                  </div>
+                </>
+              )}
+            </button>
           </div>
         ) : (
           <button onClick={()=>onOpenPost(deal)} style={{ width:"100%", textAlign:"left", background:"none", border:"none", padding:0, cursor:"pointer", marginBottom:11 }}>
@@ -1482,6 +1684,26 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           </button>
         )}
 
+        {/* Post-reveal action strip — appears after a reveal */}
+        {claimed && (
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:10, padding:"8px 10px", background:`${c.accent}08`, border:`1px dashed ${c.accent}33`, borderRadius:12, animation:"slideDown 0.35s cubic-bezier(0.34,1.2,0.64,1) both" }}>
+            <span style={{ fontSize:10, fontWeight:700, color:c.accent, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap", marginRight:2 }}>Helpful?</span>
+            <button onClick={()=>handleVote("up")} title="Yes, helpful" style={{ width:30, height:30, background:vote==="up"?c.accent:"transparent", border:`1.5px solid ${vote==="up"?c.accent:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={vote==="up"?"#FFFFFF":c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.41-7.41A2 2 0 0 1 13.07 2H14a2 2 0 0 1 2 2v1.88z"/></svg>
+            </button>
+            <button onClick={()=>handleVote("down")} title="Not helpful" style={{ width:30, height:30, background:vote==="down"?c.sub:"transparent", border:`1.5px solid ${vote==="down"?c.sub:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={vote==="down"?"#FFFFFF":c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14V2"/><path d="M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.41 7.41A2 2 0 0 1 10.93 22H10a2 2 0 0 1-2-2v-1.88z"/></svg>
+            </button>
+            <button onClick={()=>handleBookmark()} title={bookmarked?"Saved":"Save"} style={{ width:30, height:30, background:bookmarked?c.accent:"transparent", border:`1.5px solid ${bookmarked?c.accent:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={bookmarked?"#FFFFFF":"none"} stroke={bookmarked?"#FFFFFF":c.sub} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            </button>
+            <button onClick={()=>onPostBetter && onPostBetter(deal)} style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5, background:c.accent, border:"none", borderRadius:9, padding:"7px 12px", cursor:"pointer" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span style={{ fontSize:11, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}>Better price?</span>
+            </button>
+          </div>
+        )}
+
         {/* Action bar */}
         <div style={{ display:"flex", alignItems:"center", gap:7, position:"relative" }}>
           <button onClick={()=>handleVote("up")} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px", cursor:"pointer", transition:"all 0.15s", animation:upAnim?"upBurst 0.55s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
@@ -1509,17 +1731,22 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           {showShare && (() => {
             const shareUrl  = "https://bkm-app.vercel.app";
             const shareText = `${deal.user.username} found a deal at ${deal.place} (${deal.district}) on BKM — ${deal.subject.slice(0,80)}${deal.subject.length>80?"...":""}\n\nBKM — Community-powered price discovery in Qatar. We do it so you don't have to.\n\n${shareUrl}`;
+            const grantShareBonus = () => {
+              sfx.whoosh();
+              const earned = tryShareBonus();
+              if (earned > 0 && onShareBonus) onShareBonus(earned);
+            };
             const handleNative = async () => {
               setShowShare(false);
               if (navigator.share) {
-                try { await navigator.share({ title:`BKM — ${deal.place}`, text:shareText, url:shareUrl }); } catch(e){}
+                try { await navigator.share({ title:`BKM — ${deal.place}`, text:shareText, url:shareUrl }); grantShareBonus(); } catch(e){}
               } else {
-                navigator.clipboard?.writeText(shareText);
+                navigator.clipboard?.writeText(shareText); grantShareBonus();
               }
             };
-            const handleWhatsApp = () => { setShowShare(false); window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`,"_blank"); };
-            const handleCopy     = () => { setShowShare(false); navigator.clipboard?.writeText(shareText); };
-            const handleX        = () => { setShowShare(false); window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,"_blank"); };
+            const handleWhatsApp = () => { setShowShare(false); window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`,"_blank"); grantShareBonus(); };
+            const handleCopy     = () => { setShowShare(false); navigator.clipboard?.writeText(shareText); grantShareBonus(); };
+            const handleX        = () => { setShowShare(false); window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,"_blank"); grantShareBonus(); };
             return (
               <>
                 <div style={{ position:"fixed", inset:0, zIndex:200 }} onClick={()=>setShowShare(false)}/>
@@ -1556,7 +1783,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // ─────────────────────────────────────────────────────────────────────────────
 // FEED
 // ─────────────────────────────────────────────────────────────────────────────
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||DEALS);
   const [claimed, setClaimed]       = useState(new Set(SESSION.claimed));
@@ -1566,16 +1793,16 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const [locPerm, setLocPerm]       = useState(SESSION.locPerm);
   const [hasLoc, setHasLoc]         = useState(SESSION.hasLoc);
   const [locLoading, setLocLoading] = useState(false);
-  const [revealCount, setRevealCount] = useState(SESSION.revealsCount);
+  const [energy, setEnergy]         = useState(calculateCurrentEnergy());
   const [showTutorial, setShowTutorial] = useState(!SESSION.tutorialSeen);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [feedFilter, setFeedFilter] = useState(SESSION.feedFilter||"foryou");
   const [pullDist, setPullDist]     = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [bonusToast, setBonusToast] = useState(null); // {amount, reason}
   const pullStartY                  = useRef(null);
   const scrollRef                   = useRef(null);
-  const REVEAL_LIMIT = 10;
-  const limitReached = revealCount >= REVEAL_LIMIT;
+  const limitReached = energy <= 0;
 
   useEffect(()=>{ if(initialDeals) setDeals(initialDeals); },[initialDeals]);
   const [showAreas, setShowAreas] = useState(false);
@@ -1584,9 +1811,28 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const [query, setQuery]         = useState("");
   const c = TH[theme];
 
-  const AREAS = ["The Pearl","West Bay","Lusail","Al Waab","Msheireb","Al Hilal","Madinat Khalifa","Al Sadd","Old Airport","Al Wakra"];
-
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
+
+  // Grant daily login bonus once per session per day
+  useEffect(() => {
+    const granted = claimDailyBonus();
+    if (granted > 0) {
+      const newEnergy = calculateCurrentEnergy();
+      setEnergy(newEnergy);
+      setTimeout(() => { sfx.earn(); showBonus(granted, "Daily login bonus"); }, 1200);
+    }
+  }, []);
+
+  // Periodic refill check (every minute)
+  useEffect(() => {
+    const interval = setInterval(() => setEnergy(calculateCurrentEnergy()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const showBonus = (amount, reason) => {
+    setBonusToast({ amount, reason, id: Date.now() });
+    setTimeout(() => setBonusToast(null), 2400);
+  };
 
   // Pull-to-refresh logic
   const onTouchStartRefresh = (e) => {
@@ -1620,17 +1866,25 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   };
 
   const handleClaim = (id) => {
-    if (limitReached) { setShowLimitModal(true); return; }
-    SESSION.revealsCount++;
+    if (limitReached) { sfx.error(); setShowLimitModal(true); return; }
+    if (!consumeReveal()) { sfx.error(); setShowLimitModal(true); return; }
+    sfx.reveal();
     SESSION.claimed.add(id);
-    const newCount = SESSION.revealsCount;
-    setRevealCount(newCount);
+    setEnergy(SESSION.revealEnergy);
     setClaimed(s => { const n=new Set(s); n.add(id); return n; });
     setDeals(ds => ds.map(d => d.id===id ? { ...d, claims: d.claims+1 } : d));
+
+    // Update streak (only counts once per day)
+    const wasNewStreakDay = SESSION.lastRevealDate !== todayKey();
+    updateStreakOnReveal();
+    if (wasNewStreakDay && SESSION.streak >= 2) {
+      setTimeout(() => { sfx.streak(); showBonus(0, `${SESSION.streak}-day streak`); }, 600);
+    }
+
     // Notify the poster if it's their own post being revealed
     const deal = deals.find(d=>d.id===id);
     if (deal && deal.user.id === getMe().id && onReveal) onReveal(`Someone revealed your post about ${deal.place}`);
-    if (newCount >= REVEAL_LIMIT) setTimeout(()=>setShowLimitModal(true), 800);
+    if (SESSION.revealEnergy <= 0) setTimeout(()=>setShowLimitModal(true), 800);
   };
 
   const handleVote = (id, dir) => {
@@ -1733,28 +1987,36 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
         </div>
       )}
 
-      {/* ── Limit reached modal ── */}
+      {/* Out of energy modal — show how to earn more */}
       {showLimitModal && (
         <div style={{ position:"absolute", inset:0, zIndex:120, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 28px" }}>
           <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.75)", backdropFilter:"blur(4px)" }} onClick={()=>setShowLimitModal(false)}/>
-          <div style={{ position:"relative", zIndex:1, background:theme==="dark"?"#1A1208":TH.light.surface, borderRadius:24, padding:"32px 24px", textAlign:"center", animation:"scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both", width:"100%" }}>
-            {/* Animated tag */}
-            <div style={{ display:"flex", justifyContent:"center", marginBottom:16, animation:"upBurst 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.1s both" }}>
-              <TagMark size={56} fill={TH[theme].accent} holeBg={theme==="dark"?"#1A1208":TH.light.surface}/>
+          <div style={{ position:"relative", zIndex:1, background:theme==="dark"?"#1A1208":TH.light.surface, borderRadius:24, padding:"28px 24px", textAlign:"center", animation:"scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both", width:"100%" }}>
+            <div style={{ display:"flex", justifyContent:"center", marginBottom:14, animation:"upBurst 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.1s both" }}>
+              <div style={{ width:64, height:64, borderRadius:18, background:`${TH[theme].accent}15`, border:`1.5px solid ${TH[theme].accent}55`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill={TH[theme].accent}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
+              </div>
             </div>
-            <div style={{ fontSize:22, fontWeight:800, color:TH[theme].text, fontFamily:"'DM Sans',sans-serif", marginBottom:8, letterSpacing:"-0.02em" }}>
-              That's your 10
+            <div style={{ fontSize:20, fontWeight:800, color:TH[theme].text, fontFamily:"'DM Sans',sans-serif", marginBottom:6, letterSpacing:"-0.02em" }}>
+              Out of energy
             </div>
-            <div style={{ fontSize:13, color:TH[theme].sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, marginBottom:24 }}>
-              You've used all your reveals for today. Come back tomorrow for 10 more. Quality over quantity.
+            <div style={{ fontSize:12, color:TH[theme].sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:18 }}>
+              Refills 1 every 2 hours · next in <span style={{ fontWeight:700, color:TH[theme].text }}>{getTimeToNextRefill()||"soon"}</span><br/>Or earn more by being active:
             </div>
-            {/* Dots showing all filled */}
-            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:24 }}>
-              {Array.from({length:10}).map((_,i)=>(
-                <div key={i} style={{ width:8, height:8, borderRadius:"50%", background:TH[theme].accent, animation:`upBurst 0.4s ease ${i*0.04}s both` }}/>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:18 }}>
+              {[
+                { icon:"plus",   action:"Post a deal",         reward:"+3" },
+                { icon:"thumb",  action:"Get an upvote",       reward:"+1" },
+                { icon:"share",  action:"Share a deal",        reward:"+1 (max 3/day)" },
+                { icon:"sun",    action:"Daily login",         reward:"+5 (auto)" },
+              ].map((row,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", background:TH[theme].muted, borderRadius:11, border:`1px solid ${TH[theme].border}` }}>
+                  <span style={{ fontSize:12, fontWeight:600, color:TH[theme].text, fontFamily:"'DM Sans',sans-serif" }}>{row.action}</span>
+                  <span style={{ fontSize:11, fontWeight:800, color:TH[theme].accent, fontFamily:"'DM Sans',sans-serif" }}>{row.reward}</span>
+                </div>
               ))}
             </div>
-            <button onClick={()=>setShowLimitModal(false)} style={{ width:"100%", padding:"14px 0", background:TH[theme].accent, border:"none", borderRadius:14, fontSize:14, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
+            <button onClick={()=>setShowLimitModal(false)} style={{ width:"100%", padding:"13px 0", background:TH[theme].accent, border:"none", borderRadius:13, fontSize:14, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
               Got it
             </button>
           </div>
@@ -1845,17 +2107,20 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             </div>
             <span style={{ fontSize:9, fontWeight:700, color:"#F59E0B", background:"#F59E0B18", border:"1px solid #F59E0B44", borderRadius:5, padding:"2px 6px", fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <div style={{ display:"flex", gap:3 }}>
-              {Array.from({length:10}).map((_,i)=>(
-                <div key={i} style={{ width:5, height:5, borderRadius:"50%", background:i<revealCount?c.accent:c.muted, transition:"background 0.25s" }}/>
-              ))}
-            </div>
-            <span style={{ fontSize:10, color:limitReached?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:limitReached?700:400 }}>
-              {limitReached?"Limit reached":`${REVEAL_LIMIT-revealCount} left`}
-            </span>
+          <div style={{ display:"flex", alignItems:"center", gap:6, background:c.muted, border:`1px solid ${c.border}`, borderRadius:14, padding:"5px 10px 5px 8px", cursor:"default" }} title={energy < MAX_ENERGY ? `Refills 1 every 2h · Next in ${getTimeToNextRefill()||"soon"}` : "Energy full"}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill={energy>0?c.accent:c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
+            <span style={{ fontSize:13, fontWeight:800, color:energy>0?c.text:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{energy}</span>
+            <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>/ {MAX_ENERGY}</span>
           </div>
         </div>
+
+        {/* Bonus toast — slides in when user earns extra reveals */}
+        {bonusToast && (
+          <div style={{ position:"absolute", top:50, left:"50%", transform:"translateX(-50%)", zIndex:300, background:c.accent, color:"#FFFFFF", padding:"10px 16px", borderRadius:14, boxShadow:`0 6px 24px ${c.accent}55`, display:"flex", alignItems:"center", gap:8, fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:13, animation:"slideDown 0.35s cubic-bezier(0.34,1.2,0.64,1) both" }}>
+            {bonusToast.amount > 0 && <><svg width="14" height="14" viewBox="0 0 24 24" fill="#FFFFFF"><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg><span>+{bonusToast.amount}</span></>}
+            <span style={{ opacity:0.95 }}>{bonusToast.reason}</span>
+          </div>
+        )}
 
         {/* Search bar */}
         <div style={{ padding:"0 20px 16px" }}>
@@ -1935,6 +2200,8 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
               onOpenPost={onOpenPost}
               limitReached={limitReached}
               isOwn={deal.user.id === getMe().id}
+              onShareBonus={(amt)=>{ setEnergy(SESSION.revealEnergy); sfx.earn(); showBonus(amt, "Thanks for sharing!"); }}
+              onPostBetter={onPostBetter}
             />
           ))}
         </div>
@@ -1942,7 +2209,8 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
         {/* Partner CTA */}
         <div style={{ padding:"20px 20px 0" }}>
           <button
-            onClick={()=>onPartnerRequest && onPartnerRequest()}
+            type="button"
+            onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); onPartnerRequest && onPartnerRequest(); }}
             style={{ width:"100%", background:c.accent, borderRadius:20, padding:"22px 20px", position:"relative", overflow:"hidden", cursor:"pointer", border:"none", textAlign:"left", display:"block", WebkitTapHighlightColor:"transparent" }}
           >
             <div style={{ position:"absolute", right:-18, top:"50%", transform:"translateY(-50%)", opacity:0.08, pointerEvents:"none" }}><TagMark size={100} fill="#FFFFFF" holeBg="transparent"/></div>
@@ -2126,9 +2394,11 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
     setFollowAnim(true);
     setTimeout(()=>setFollowAnim(false),500);
     if (SESSION.following.has(user.id)) {
+      sfx.voteDown();
       SESSION.following.delete(user.id);
       setFollowing(false);
     } else {
+      sfx.voteUp();
       SESSION.following.add(user.id);
       setFollowing(true);
     }
@@ -2170,9 +2440,8 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
               <div style={{ flex:1 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                   <span style={{ fontSize:18, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{user.username}</span>
-                  {user.founder && <span style={{ fontSize:10, fontWeight:800, color:"#FFFFFF", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", borderRadius:6, padding:"2px 8px", fontFamily:"'DM Sans',sans-serif" }}>FOUNDER</span>}
+                  <TierBadge user={user} size="md"/>
                   {(()=>{ const b=getBetaBadge(user.id); return b ? <span style={{ fontSize:10, fontWeight:800, color:b.color, background:b.bg, border:`1px solid ${b.border}`, borderRadius:6, padding:"2px 8px", fontFamily:"'DM Sans',sans-serif" }}>β {b.label}</span> : null; })()}
-                  <span style={{ fontSize:10, fontWeight:700, color:RANK_COLORS[user.rank], fontFamily:"'DM Sans',sans-serif" }}>{rank?.label}</span>
                 </div>
                 {user.name && <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{user.name}</div>}
                 {user.caption && <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", marginTop:6, lineHeight:1.4 }}>{user.caption}</div>}
@@ -2208,6 +2477,28 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
             </div>
           </div>
         </div>
+
+        {/* Streak card — only on own profile, only when active */}
+        {isOwn && SESSION.streak > 0 && (
+          <div style={{ padding:"12px 20px 0", ...a(0.10) }}>
+            <div style={{ position:"relative", overflow:"hidden", background:`linear-gradient(135deg,${c.surface} 0%,${c.accent}08 100%)`, border:`1px solid ${c.accent}30`, borderRadius:14, padding:"13px 16px", display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ position:"absolute", top:-12, right:-12, width:80, height:80, borderRadius:"50%", background:`${c.accent}10`, pointerEvents:"none" }}/>
+              <div style={{ position:"relative", width:42, height:42, borderRadius:12, background:"linear-gradient(135deg,#FF6B35,#F59E0B)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, boxShadow:"0 3px 14px rgba(255,107,53,0.35)" }}>
+                <svg width="18" height="22" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>
+              </div>
+              <div style={{ flex:1, position:"relative" }}>
+                <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+                  <span style={{ fontSize:22, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.03em", lineHeight:1 }}>{SESSION.streak}</span>
+                  <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>day streak</span>
+                </div>
+                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>
+                  {SESSION.lastRevealDate === todayKey() ? "Active today · Keep it going tomorrow" : "Reveal a deal today to extend"}
+                  {SESSION.bestStreak > SESSION.streak ? ` · Best: ${SESSION.bestStreak}` : ""}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Beta tier card */}
         {(()=>{ const b=getBetaBadge(user.id); return b ? (
@@ -2367,9 +2658,9 @@ function FollowingList({ theme, lang, onBack, onUserTap }) {
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                       <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{u.username}</span>
-                      {u.founder && <span style={{ fontSize:8, fontWeight:800, color:"#FFFFFF", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", borderRadius:4, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>FOUNDER</span>}
+                      <TierBadge user={u} size="sm"/>
                     </div>
-                    <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.caption || `${RANK_LABELS[u.rank]||""} · ${u.followers||0} followers`}</div>
+                    <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.caption || `${u.followers||0} followers`}</div>
                   </div>
                 </button>
                 <button onClick={()=>unfollow(u.id)} style={{ padding:"7px 14px", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:9, fontSize:11, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Unfollow</button>
@@ -2802,7 +3093,7 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
                         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                           <ColorAvatar user={{username:r.postedBy, av:r.postedBy}} size={18}/>
                           <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>by <span style={{ color:c.text, fontWeight:600 }}>{r.postedBy}</span></span>
-                          <span style={{ fontSize:9, fontWeight:700, color:RANK_COLORS[r.rank], fontFamily:"'DM Sans',sans-serif" }}>{RANK_LABELS[r.rank]}</span>
+                          <TierBadge user={{rank:r.rank, founder:false}} size="sm"/>
                         </div>
                         <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{Number(r.rating||0).toFixed(1)}</span>
                       </div>
@@ -2836,7 +3127,7 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
                       </div>
                     </div>
                     <div style={{ textAlign:"right" }}>
-                      <span style={{ fontSize:10, fontWeight:700, color:RANK_COLORS[u.rank], fontFamily:"'DM Sans',sans-serif" }}>{RANK_LABELS[u.rank]}</span>
+                      <TierBadge user={u} size="sm"/>
                     </div>
                   </div>
                 ))}
@@ -3161,9 +3452,7 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
                       <Avatar user={post.user} size={22}/>
                       <span style={{ fontSize:12, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{post.user.username}</span>
-                      {post.founderPost && (
-                        <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", borderRadius:5, padding:"1px 6px", fontFamily:"'DM Sans',sans-serif" }}>FOUNDER</span>
-                      )}
+                      <TierBadge user={post.user} size="sm"/>
                       <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginLeft:"auto" }}>{post.submitted}</span>
                       <div style={{ background:`${p.color}18`, border:`1px solid ${p.color}44`, borderRadius:6, padding:"2px 6px" }}>
                         <span style={{ fontSize:9, fontWeight:700, color:p.color, fontFamily:"'DM Sans',sans-serif" }}>{p.label}</span>
@@ -3455,6 +3744,7 @@ function NotificationsScreen({ notifications, theme, onBack, onMarkRead }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSettings, setNotifSettings, onBack, onSignOut }) {
   const [openFaq, setOpenFaq] = useState(null);
+  const [soundOn, setSoundOn] = useState(SESSION.soundEnabled);
   const c = TH[theme];
 
   const Toggle = ({ val, onToggle }) => (
@@ -3480,8 +3770,9 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
   );
 
   const FAQS = [
-    { q:"How do reveals work?",              a:"Each user gets 10 reveals per day. Reveals reset at midnight. Higher-ranked users' posts get more visibility." },
+    { q:"How do reveals work?",              a:"You get 10 reveal energy. Each reveal uses 1. Energy refills 1 every 2 hours, or earn extras: post a deal (+3), get an upvote (+1), share a deal (+1, max 3/day), daily login (+5)." },
     { q:"How do I increase my rank?",        a:"Post verified deals that get upvoted and revealed. The higher your upvote-to-downvote ratio, the faster you climb from Scout to Elite." },
+    { q:"What's a streak?",                  a:"A streak counts how many consecutive days you've revealed at least one deal. Skip a day and it resets. Visible on your profile." },
     { q:"Are prices verified?",              a:"All posts are reviewed by BKM before going live. We check that prices are believable and locations are real. Users can also report inaccurate prices." },
     { q:"Can I post in Arabic?",             a:"Yes. Arabic posts are fully supported. Your take can be in any language — the platform is built for Qatar." },
     { q:"How do I become a verified user?",  a:"Consistent accurate posts over time earn you the Verified badge. BKM reviews your posting history and grants it manually." },
@@ -3511,6 +3802,22 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
               right={<Toggle val={notifSettings[item.key]} onToggle={()=>setNotifSettings(s=>({...s,[item.key]:!s[item.key]}))}/>}
             />
           ))}
+        </div>
+
+        {/* Sound */}
+        <Section title="Sound"/>
+        <div style={{ background:c.surface, borderTop:`1px solid ${c.border}`, borderBottom:`1px solid ${c.border}` }}>
+          <Row
+            label="Sound effects"
+            sub="Reveal chimes, vote feedback, taps"
+            right={<Toggle val={soundOn} onToggle={()=>{
+              const next = !soundOn;
+              setSoundOn(next);
+              SESSION.soundEnabled = next;
+              if (next) sfx.success(); // demo on enable
+            }}/>}
+            border={false}
+          />
         </div>
 
         {/* Appearance */}
@@ -3639,9 +3946,14 @@ export default function BKMApp() {
       address:postData.address||postData.district,
       items:postData.items, submitted:"Just now",
       img:`https://picsum.photos/seed/new${id}/300/140`,
-      founderPost: getMe().founder, // flagged for priority review
+      founderPost: getMe().founder,
     };
     setPending(q => [post, ...q]);
+    // Reward user with +3 energy for posting + success sound
+    earnReveals(3);
+    sfx.success();
+    setTimeout(() => sfx.earn(), 400);
+    addToast("+3 reveals · Thanks for posting!", "approve");
   };
 
   // Called by DevReview on approve
@@ -3672,14 +3984,14 @@ export default function BKMApp() {
     if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead}/>;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>go("partner")}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>go("partner")} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery}/>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
     if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
     if (tab==="dev")     return <DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject}/>;
   };
 
-  // Inject PWA meta tags on mount so we don't need to touch index.html
+  // Inject PWA meta tags + force body bg to match theme so safe-area isn't black
   useEffect(() => {
     const metas = [
       { name:"viewport", content:"width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" },
@@ -3695,6 +4007,11 @@ export default function BKMApp() {
       el.setAttribute("content", m.content);
     });
     document.title = "BKM — بكم";
+    // Match body, html, and root background to current theme so safe-area insets blend in
+    document.documentElement.style.background = c.bg;
+    document.body.style.background = c.bg;
+    const root = document.getElementById("root");
+    if (root) root.style.background = c.bg;
   }, [c.bg]);
 
   return (
@@ -3794,7 +4111,7 @@ export default function BKMApp() {
               ].map(item => {
                 const active = !pushedScreen && tab===item.key;
                 return (
-                  <button key={item.key} onClick={()=>{ setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 18px" }}>
+                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 18px" }}>
                     <item.Ico s={21} c={active?c.accent:c.sub}/>
                     <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
                   </button>
@@ -3811,7 +4128,7 @@ export default function BKMApp() {
               ].map(item => {
                 const active = !pushedScreen && tab===item.key;
                 return (
-                  <button key={item.key} onClick={()=>{ setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 18px" }}>
+                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 18px" }}>
                     <item.Ico s={21} c={active?c.accent:c.sub}/>
                     <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
                   </button>
