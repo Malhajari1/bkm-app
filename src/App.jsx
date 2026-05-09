@@ -1,4 +1,252 @@
 import React, { useState, useEffect, useRef } from "react";
+import { initializeApp } from "firebase/app";
+import { getAnalytics, isSupported as analyticsSupported } from "firebase/analytics";
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as fbSignOut,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
+import {
+  getFirestore,
+  doc, setDoc, getDoc, updateDoc, deleteDoc,
+  collection, query, where, orderBy, limit,
+  addDoc, onSnapshot, serverTimestamp, increment,
+  writeBatch, runTransaction,
+  arrayUnion, arrayRemove,
+} from "firebase/firestore";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIREBASE — config + initialization + auth/data helpers
+// ─────────────────────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyDJ_h6D1sxRezlmzZaSJKBwJGDauDK8Q-k",
+  authDomain: "bkmapp-162b4.firebaseapp.com",
+  projectId: "bkmapp-162b4",
+  storageBucket: "bkmapp-162b4.firebasestorage.app",
+  messagingSenderId: "73423037008",
+  appId: "1:73423037008:web:d3f4cb41bde08c44d4a755",
+  measurementId: "G-6CBVS82KSB",
+};
+
+const fbApp  = initializeApp(firebaseConfig);
+const fbAuth = getAuth(fbApp);
+const fbDb   = getFirestore(fbApp);
+setPersistence(fbAuth, browserLocalPersistence).catch(()=>{});
+if (typeof window !== "undefined") {
+  analyticsSupported().then(ok => { if (ok) try { getAnalytics(fbApp); } catch(e){} }).catch(()=>{});
+}
+
+// Phone-as-identity helpers (workaround for not having phone OTP on Spark plan)
+const normalizePhone = (raw) => {
+  let p = (raw||"").replace(/[^\d+]/g, "");
+  if (!p.startsWith("+")) {
+    if (p.startsWith("00")) p = "+" + p.slice(2);
+    else if (p.length >= 8) p = "+974" + p; // default to Qatar
+    else p = "+" + p;
+  }
+  return p;
+};
+const phoneToEmail    = (phone) => `${normalizePhone(phone).replace("+","p")}@bkm.qa`;
+const phoneToPassword = (phone) => `BKM-${normalizePhone(phone)}-prototype-key-2025`;
+
+// === Auth functions ===
+const fbSignUpPhone = async (phone) => {
+  const email    = phoneToEmail(phone);
+  const password = phoneToPassword(phone);
+  try {
+    const res = await createUserWithEmailAndPassword(fbAuth, email, password);
+    return { uid: res.user.uid, isNew: true, phone: normalizePhone(phone) };
+  } catch (e) {
+    if (e.code === "auth/email-already-in-use") {
+      const res = await signInWithEmailAndPassword(fbAuth, email, password);
+      return { uid: res.user.uid, isNew: false, phone: normalizePhone(phone) };
+    }
+    throw e;
+  }
+};
+
+const fbSignInPhone = async (phone) => {
+  const email    = phoneToEmail(phone);
+  const password = phoneToPassword(phone);
+  const res = await signInWithEmailAndPassword(fbAuth, email, password);
+  return { uid: res.user.uid, phone: normalizePhone(phone) };
+};
+
+const fbSignInDev = async () => {
+  const email    = "dev@bkm.qa";
+  const password = "BKM-DEV-PROTOTYPE-KEY-2025";
+  try {
+    const res = await signInWithEmailAndPassword(fbAuth, email, password);
+    return { uid: res.user.uid, isNew: false };
+  } catch (e) {
+    if (e.code === "auth/invalid-credential" || e.code === "auth/user-not-found" || e.code === "auth/wrong-password") {
+      const res = await createUserWithEmailAndPassword(fbAuth, email, password);
+      return { uid: res.user.uid, isNew: true };
+    }
+    throw e;
+  }
+};
+
+const fbSignUpMerchant = async (email, password) => {
+  const res = await createUserWithEmailAndPassword(fbAuth, email, password);
+  return { uid: res.user.uid };
+};
+
+const fbSignInMerchant = async (email, password) => {
+  const res = await signInWithEmailAndPassword(fbAuth, email, password);
+  return { uid: res.user.uid };
+};
+
+const fbDoSignOut = () => fbSignOut(fbAuth);
+
+// === User doc ===
+const fbCreateUserDoc = async (uid, data = {}) => {
+  await setDoc(doc(fbDb, "users", uid), {
+    uid,
+    createdAt:           serverTimestamp(),
+    username:            "",
+    phone:               "",
+    avatar:              "a1",
+    rank:                0,
+    isAdmin:             false,
+    isFounder:           false,
+    isMerchant:          false,
+    merchantName:        "",
+    merchantCategory:    "",
+    revealEnergy:        10,
+    lastEnergyUpdate:    Date.now(),
+    sharesUsedToday:     0,
+    shareDateKey:        "",
+    lastDailyBonusDate:  "",
+    lastRevealDate:      "",
+    streak:              0,
+    bestStreak:          0,
+    soundEnabled:        true,
+    tosAccepted:         false,
+    profileSetup:        false,
+    tutorialSeen:        false,
+    interests:           [],
+    bio:                 "",
+    tiktok:              "",
+    instagram:           "",
+    twitterX:            "",
+    followers:           0,
+    following:           0,
+    ...data,
+  }, { merge: true });
+};
+
+const fbGetUserDoc    = async (uid) => { const s = await getDoc(doc(fbDb, "users", uid)); return s.exists() ? s.data() : null; };
+const fbUpdateUserDoc = (uid, patch) => updateDoc(doc(fbDb, "users", uid), patch);
+const fbSubscribeUser = (uid, cb)    => onSnapshot(doc(fbDb, "users", uid), s => cb(s.exists() ? s.data() : null));
+
+// === Username uniqueness ===
+const fbCheckUsernameAvailable = async (username) => {
+  const { getDocs } = await import("firebase/firestore");
+  const q = query(collection(fbDb, "users"), where("username", "==", username.toLowerCase()), limit(1));
+  const r = await getDocs(q);
+  return r.empty;
+};
+
+// === Deals (posts) ===
+const fbSubmitPost = async (postData, user) => {
+  const ref = await addDoc(collection(fbDb, "deals"), {
+    ...postData,
+    userId:        user.uid,
+    userUsername:  user.username,
+    userAvatar:    user.avatar,
+    userFounder:   !!user.isFounder,
+    userRank:      user.rank || 0,
+    claims:        0,
+    ups:           0,
+    downs:         0,
+    verified:      false,
+    status:        "pending",
+    createdAt:     serverTimestamp(),
+    submittedAt:   "Just now",
+  });
+  return ref.id;
+};
+
+const fbApprovePost = (dealId, adminUid) => updateDoc(doc(fbDb, "deals", dealId), { status:"approved", verified:true, approvedBy:adminUid, approvedAt:serverTimestamp() });
+const fbRejectPost  = (dealId, adminUid) => updateDoc(doc(fbDb, "deals", dealId), { status:"rejected", rejectedBy:adminUid, rejectedAt:serverTimestamp() });
+
+const fbSubscribeApprovedDeals = (cb) => onSnapshot(query(collection(fbDb, "deals"), where("status","==","approved"), orderBy("approvedAt","desc"), limit(80)), snap => {
+  cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+});
+const fbSubscribePendingDeals = (cb) => onSnapshot(query(collection(fbDb, "deals"), where("status","==","pending"), orderBy("createdAt","desc"), limit(80)), snap => {
+  cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+});
+
+// === Reveal / vote / bookmark / follow ===
+const fbRecordReveal = async (uid, dealId) => {
+  const userRef = doc(fbDb, "users", uid, "claimed", dealId);
+  await setDoc(userRef, { dealId, createdAt: serverTimestamp() }, { merge:true });
+  await updateDoc(doc(fbDb, "deals", dealId), { claims: increment(1) });
+};
+
+const fbRecordVote = async (uid, dealId, dir) => {
+  const voteRef = doc(fbDb, "users", uid, "votes", dealId);
+  const prev = await getDoc(voteRef);
+  const prevDir = prev.exists() ? prev.data().dir : null;
+  const dealRef = doc(fbDb, "deals", dealId);
+  if (prevDir === dir) {
+    // Toggling off
+    await deleteDoc(voteRef);
+    await updateDoc(dealRef, dir === "up" ? { ups: increment(-1) } : { downs: increment(-1) });
+    return null;
+  }
+  await setDoc(voteRef, { dealId, dir, createdAt: serverTimestamp() }, { merge:true });
+  const patch = {};
+  if (prevDir === "up")    patch.ups   = increment(-1);
+  if (prevDir === "down")  patch.downs = increment(-1);
+  if (dir === "up")        patch.ups   = increment(prevDir === "up" ? 0 : 1);
+  if (dir === "down")      patch.downs = increment(prevDir === "down" ? 0 : 1);
+  await updateDoc(dealRef, patch);
+  return dir;
+};
+
+const fbToggleBookmark = async (uid, dealId) => {
+  const bRef = doc(fbDb, "users", uid, "bookmarks", dealId);
+  const snap = await getDoc(bRef);
+  if (snap.exists()) { await deleteDoc(bRef); return false; }
+  await setDoc(bRef, { dealId, createdAt: serverTimestamp() });
+  return true;
+};
+
+const fbToggleFollow = async (myUid, targetUid) => {
+  const fRef = doc(fbDb, "users", myUid, "follows", targetUid);
+  const snap = await getDoc(fRef);
+  if (snap.exists()) {
+    await deleteDoc(fRef);
+    await updateDoc(doc(fbDb, "users", myUid), { following: increment(-1) });
+    await updateDoc(doc(fbDb, "users", targetUid), { followers: increment(-1) });
+    return false;
+  }
+  await setDoc(fRef, { targetUid, createdAt: serverTimestamp() });
+  await updateDoc(doc(fbDb, "users", myUid), { following: increment(1) });
+  await updateDoc(doc(fbDb, "users", targetUid), { followers: increment(1) });
+  return true;
+};
+
+const fbSubscribeUserVotes     = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "votes"),     s => { const m={}; s.docs.forEach(d => m[d.id]=d.data().dir); cb(m); });
+const fbSubscribeUserBookmarks = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "bookmarks"), s => cb(new Set(s.docs.map(d => d.id))));
+const fbSubscribeUserClaimed   = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "claimed"),   s => cb(new Set(s.docs.map(d => d.id))));
+const fbSubscribeUserFollows   = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "follows"),   s => cb(new Set(s.docs.map(d => d.id))));
+
+// === Partner requests ===
+const fbSubmitPartnerRequest = async (data) => {
+  const ref = await addDoc(collection(fbDb, "partner_requests"), {
+    ...data,
+    status:      "pending",
+    submittedAt: serverTimestamp(),
+  });
+  return ref.id;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SESSION + THEME
@@ -52,12 +300,14 @@ const consumeReveal = () => {
   if (SESSION.revealEnergy <= 0) return false;
   SESSION.revealEnergy -= 1;
   if (SESSION.revealEnergy === MAX_ENERGY - 1) SESSION.lastEnergyUpdate = Date.now(); // start refill clock
+  persistSession();
   return true;
 };
 
 const earnReveals = (amount) => {
   calculateCurrentEnergy();
   SESSION.revealEnergy = Math.min(MAX_ENERGY, SESSION.revealEnergy + amount);
+  persistSession();
   return SESSION.revealEnergy;
 };
 
@@ -107,7 +357,38 @@ const updateStreakOnReveal = () => {
   }
   SESSION.lastRevealDate = today;
   if (SESSION.streak > SESSION.bestStreak) SESSION.bestStreak = SESSION.streak;
+  persistSession();
 };
+
+// === Persistence — keep streak / energy / sound across refreshes ===
+const PERSIST_KEY = "bkm_session_v1";
+const persistSession = () => {
+  try {
+    if (typeof window === "undefined") return;
+    const data = {
+      revealEnergy:       SESSION.revealEnergy,
+      lastEnergyUpdate:   SESSION.lastEnergyUpdate,
+      sharesUsedToday:    SESSION.sharesUsedToday,
+      lastDailyBonusDate: SESSION.lastDailyBonusDate,
+      lastRevealDate:     SESSION.lastRevealDate,
+      streak:             SESSION.streak,
+      bestStreak:         SESSION.bestStreak,
+      shareDateKey:       SESSION.shareDateKey,
+      soundEnabled:       SESSION.soundEnabled,
+    };
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+  } catch(e){}
+};
+const restoreSession = () => {
+  try {
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    Object.assign(SESSION, data);
+  } catch(e){}
+};
+restoreSession();
 
 // Shared mutable lists (in production: Firestore collections)
 const PARTNER_REQUESTS = [];   // partner inquiry submissions
@@ -1131,8 +1412,13 @@ function PartnerRequest({ theme, lang, onBack, onSubmitted }) {
   const crValid    = crNumber.length >= 4 && crNumber.length <= 8;
   const ready = businessName && crValid && category && contactName && phone && email && district;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!ready) return;
+    try {
+      await fbSubmitPartnerRequest({ businessName, crNumber, category, contactName, phone, email, district, message });
+    } catch (e) {
+      // Fallback: still mark as submitted even if Firestore write fails (don't block user)
+    }
     PARTNER_REQUESTS.push({
       id: Date.now(),
       businessName, crNumber, category, contactName, phone, email, district, message,
@@ -1419,11 +1705,29 @@ function Register({ theme, lang, onNext, onBack, onLogin }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [on, setOn]       = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const c = TH[theme]; const ar = lang==="ar";
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
   const is = inp(c);
-  const ready = email && phone;
+  const ready = email && phone && phone.length >= 7 && !loading;
+
+  const handleNext = async () => {
+    if (!ready) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await fbSignUpPhone(phone);
+      sfx.success();
+      onNext(phone, email);
+    } catch (e) {
+      setError(e.code === "auth/network-request-failed" ? "Network error. Check your connection." : "Couldn't create account. Try again.");
+      sfx.error();
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"space-between", padding:"24px 28px 40px" }}>
       <div style={{ ...a(0.04), display:"flex", alignItems:"center", gap:10 }}>
@@ -1435,11 +1739,12 @@ function Register({ theme, lang, onNext, onBack, onLogin }) {
         <div style={a(0.1)}><input style={is} type="email" placeholder={ar?"البريد الإلكتروني":"Email address"} value={email} onChange={e=>setEmail(e.target.value)} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/></div>
         <div style={{ ...a(0.14), display:"flex", gap:10 }}>
           <div style={{ ...is, width:"auto", flexShrink:0, color:c.sub, display:"flex", alignItems:"center", whiteSpace:"nowrap" }}>+974</div>
-          <input style={{ ...is }} type="tel" placeholder={ar?"رقم الجوال":"Phone number"} value={phone} onChange={e=>setPhone(e.target.value)} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
+          <input style={{ ...is }} type="tel" inputMode="numeric" placeholder={ar?"رقم الجوال":"Phone number"} value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,""))} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
         </div>
+        {error && <div style={{ fontSize:12, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>{error}</div>}
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        <div style={a(0.18)}><Btn onClick={()=>ready&&onNext()} theme={theme} style={{ opacity:ready?1:0.3 }}>{ar?"متابعة":"Continue"}</Btn></div>
+        <div style={a(0.18)}><Btn onClick={handleNext} theme={theme} style={{ opacity:ready?1:0.3 }}>{loading ? "..." : (ar?"متابعة":"Continue")}</Btn></div>
         <div style={{ ...a(0.22), textAlign:"center" }}>
           <button onClick={onLogin} style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
             {ar?"لديك حساب؟ ":"Already have an account? "}<span style={{ color:c.accent, fontWeight:700 }}>{ar?"دخول":"Sign in"}</span>
@@ -1461,7 +1766,31 @@ function Login({ theme, lang, onNext, onBack, onRegister }) {
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
   const is = inp(c);
-  const ready = email && phone;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const ready = email && phone && phone.length >= 7 && !loading;
+
+  const handleNext = async () => {
+    if (!ready) return;
+    setLoading(true);
+    setError("");
+    try {
+      await fbSignInPhone(phone);
+      sfx.success();
+      onNext(phone, email);
+    } catch (e) {
+      if (e.code === "auth/invalid-credential" || e.code === "auth/user-not-found" || e.code === "auth/wrong-password") {
+        setError(ar?"لا يوجد حساب بهذا الرقم":"No account for this number. Tap Register below.");
+      } else if (e.code === "auth/network-request-failed") {
+        setError(ar?"خطأ في الاتصال":"Network error. Check your connection.");
+      } else {
+        setError(ar?"تعذر تسجيل الدخول":"Couldn't sign in. Try again.");
+      }
+      sfx.error();
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"space-between", padding:"24px 28px 40px" }}>
       <div style={{ ...a(0.04), display:"flex", alignItems:"center", gap:10 }}>
@@ -1473,11 +1802,12 @@ function Login({ theme, lang, onNext, onBack, onRegister }) {
         <div style={a(0.1)}><input style={is} type="email" placeholder={ar?"البريد الإلكتروني":"Email address"} value={email} onChange={e=>setEmail(e.target.value)} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/></div>
         <div style={{ ...a(0.14), display:"flex", gap:10 }}>
           <div style={{ ...is, width:"auto", flexShrink:0, color:c.sub, display:"flex", alignItems:"center", whiteSpace:"nowrap" }}>+974</div>
-          <input style={{ ...is }} type="tel" placeholder={ar?"رقم الجوال":"Phone number"} value={phone} onChange={e=>setPhone(e.target.value)} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
+          <input style={{ ...is }} type="tel" inputMode="numeric" placeholder={ar?"رقم الجوال":"Phone number"} value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,""))} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
         </div>
+        {error && <div style={{ fontSize:12, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>{error}</div>}
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        <div style={a(0.18)}><Btn onClick={()=>ready&&onNext()} theme={theme} style={{ opacity:ready?1:0.3 }}>{ar?"إرسال الرمز":"Send Code"}</Btn></div>
+        <div style={a(0.18)}><Btn onClick={handleNext} theme={theme} style={{ opacity:ready?1:0.3 }}>{loading ? "..." : (ar?"إرسال الرمز":"Send Code")}</Btn></div>
         <div style={{ ...a(0.22), textAlign:"center" }}>
           <button onClick={onRegister} style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
             {ar?"ليس لديك حساب؟ ":"No account? "}<span style={{ color:c.accent, fontWeight:700 }}>{ar?"إنشاء حساب":"Register"}</span>
@@ -3783,7 +4113,24 @@ function NotificationsScreen({ notifications, theme, onBack, onMarkRead }) {
 function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSettings, setNotifSettings, onBack, onSignOut }) {
   const [openFaq, setOpenFaq] = useState(null);
   const [soundOn, setSoundOn] = useState(SESSION.soundEnabled);
+  const [supportModal, setSupportModal] = useState(null); // {title, mailto}
   const c = TH[theme];
+
+  const isPWA = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator?.standalone);
+
+  const openSupport = (subject, bodyHint) => {
+    sfx.tap();
+    const mailto = `mailto:hello@bkm.qa?subject=${encodeURIComponent(subject)}${bodyHint?`&body=${encodeURIComponent(bodyHint)}`:""}`;
+    if (isPWA) {
+      // PWA: show modal because mailto often fails silently
+      try { navigator.clipboard?.writeText("hello@bkm.qa"); } catch(e){}
+      setSupportModal({ title: subject, mailto });
+    } else {
+      // Browser: try mailto, also copy email as fallback
+      try { navigator.clipboard?.writeText("hello@bkm.qa"); } catch(e){}
+      window.location.href = mailto;
+    }
+  };
 
   const Toggle = ({ val, onToggle }) => (
     <button onClick={onToggle} style={{ width:44, height:26, borderRadius:13, background:val?c.accent:c.muted, border:"none", cursor:"pointer", position:"relative", transition:"background 0.2s", flexShrink:0 }}>
@@ -3818,7 +4165,24 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
   ];
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+      {/* Support modal — appears in PWA mode where mailto often fails */}
+      {supportModal && (
+        <div style={{ position:"absolute", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 24px" }}>
+          <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.55)", backdropFilter:"blur(4px)" }} onClick={()=>setSupportModal(null)}/>
+          <div style={{ position:"relative", zIndex:1, background:c.surface, borderRadius:20, padding:"24px 22px", textAlign:"center", animation:"scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both", width:"100%", maxWidth:360 }}>
+            <div style={{ fontSize:18, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6, letterSpacing:"-0.02em" }}>{supportModal.title}</div>
+            <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:18 }}>
+              We've copied <span style={{ fontWeight:700, color:c.accent }}>hello@bkm.qa</span> to your clipboard. Or tap below to open your mail app.
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setSupportModal(null)} style={{ flex:1, padding:"12px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:12, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Close</button>
+              <a href={supportModal.mailto} onClick={()=>setTimeout(()=>setSupportModal(null), 200)} style={{ flex:1.4, padding:"12px 0", background:c.accent, border:"none", borderRadius:12, fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", textDecoration:"none", display:"flex", alignItems:"center", justifyContent:"center" }}>Open Mail</a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ padding:"12px 20px 14px", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
         <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
@@ -3852,6 +4216,7 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
               const next = !soundOn;
               setSoundOn(next);
               SESSION.soundEnabled = next;
+              persistSession();
               if (next) sfx.success(); // demo on enable
             }}/>}
             border={false}
@@ -3882,20 +4247,9 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
         {/* Support */}
         <Section title="Support"/>
         <div style={{ background:c.surface, borderTop:`1px solid ${c.border}`, borderBottom:`1px solid ${c.border}` }}>
-          <Row label="Contact Us"     sub="hello@bkm.qa"    right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{
-            sfx.tap();
-            try { navigator.clipboard?.writeText("hello@bkm.qa"); } catch(e){}
-            window.location.href = "mailto:hello@bkm.qa?subject=BKM%20Support";
-          }}/>
-          <Row label="Report a Bug"   sub="Help us improve" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{
-            sfx.tap();
-            const body = "What happened:\n\nWhat you expected:\n\nDevice/Browser: " + (navigator.userAgent||"") + "\n";
-            window.location.href = "mailto:hello@bkm.qa?subject=BKM%20Bug%20Report&body=" + encodeURIComponent(body);
-          }}/>
-          <Row label="Request a Feature" sub="Tell us what you want" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{
-            sfx.tap();
-            window.location.href = "mailto:hello@bkm.qa?subject=BKM%20Feature%20Request&body=I%20would%20love%20to%20see%3A%0A%0AWhy%20it%20matters%3A%0A";
-          }} border={false}/>
+          <Row label="Contact Us"     sub="hello@bkm.qa"    right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>openSupport("BKM Support")}/>
+          <Row label="Report a Bug"   sub="Help us improve" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>openSupport("BKM Bug Report", "What happened:\n\nWhat you expected:\n\nDevice: " + (typeof navigator !== "undefined" ? navigator.userAgent : "") + "\n")}/>
+          <Row label="Request a Feature" sub="Tell us what you want" right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>openSupport("BKM Feature Request", "I would love to see:\n\nWhy it matters:\n")} border={false}/>
         </div>
 
         {/* FAQs */}
@@ -3944,13 +4298,135 @@ export default function BKMApp() {
   const [tab, setTab]               = useState("feed");
   const [fading, setFading]         = useState(false);
   const [pushedScreen, setPushed]   = useState(null);
-  const [feedDeals, setFeedDeals]   = useState(DEALS);         // shared live feed
-  const [pendingPosts, setPending]  = useState(PENDING_POSTS_INIT); // shared review queue
+  const [feedDeals, setFeedDeals]   = useState([]);                 // populated from Firestore
+  const [pendingPosts, setPending]  = useState([]);                 // populated from Firestore (admin-only)
+  const [feedLoading, setFeedLoading] = useState(true);
   const [feedQuery, setFeedQuery]   = useState("");
   const [postPrefill, setPostPrefill] = useState(null);
   const [partnerOrigin, setPartnerOrigin] = useState(null);
   const [isAdmin, setIsAdmin]       = useState(SESSION.isAdmin);
   const [newPostId, setNewPostId]   = useState(200);
+  const [authReady, setAuthReady]   = useState(false);
+  const [fbUser, setFbUser]         = useState(null);
+
+  // === Firebase auth state listener — keeps UI in sync with auth ===
+  const initialAuthRouted = useRef(false);
+  useEffect(() => {
+    const unsub = onAuthStateChanged(fbAuth, async (user) => {
+      if (!user) {
+        // Signed out
+        setFbUser(null);
+        SESSION.loggedIn = false;
+        SESSION.isAdmin = false;
+        SESSION.isFounder = false;
+        SESSION.isMerchant = false;
+        CURRENT_USER = null;
+        setIsAdmin(false);
+        setAuthReady(true);
+        if (!initialAuthRouted.current) initialAuthRouted.current = true;
+        return;
+      }
+      setFbUser(user);
+
+      // Hydrate from Firestore user doc
+      let userDoc = await fbGetUserDoc(user.uid);
+      if (!userDoc) {
+        // First-time user — create blank doc
+        await fbCreateUserDoc(user.uid, { phone: user.phoneNumber || "" });
+        userDoc = await fbGetUserDoc(user.uid);
+      }
+      if (!userDoc) userDoc = {};
+
+      // Mirror to SESSION + CURRENT_USER cache
+      SESSION.loggedIn         = true;
+      SESSION.isAdmin          = !!userDoc.isAdmin;
+      SESSION.isFounder        = !!userDoc.isFounder;
+      SESSION.isMerchant       = !!userDoc.isMerchant;
+      SESSION.merchantName     = userDoc.merchantName || "";
+      SESSION.merchantCategory = userDoc.merchantCategory || "";
+      SESSION.tosAccepted      = !!userDoc.tosAccepted;
+      SESSION.profileSetup     = !!userDoc.profileSetup;
+      SESSION.username         = userDoc.username || "";
+      SESSION.avatar           = userDoc.avatar || "a1";
+      SESSION.interests        = userDoc.interests || [];
+      SESSION.tutorialSeen     = !!userDoc.tutorialSeen;
+      SESSION.revealEnergy     = userDoc.revealEnergy ?? MAX_ENERGY;
+      SESSION.lastEnergyUpdate = userDoc.lastEnergyUpdate || Date.now();
+      SESSION.sharesUsedToday  = userDoc.sharesUsedToday || 0;
+      SESSION.shareDateKey     = userDoc.shareDateKey || "";
+      SESSION.lastDailyBonusDate = userDoc.lastDailyBonusDate || "";
+      SESSION.lastRevealDate   = userDoc.lastRevealDate || "";
+      SESSION.streak           = userDoc.streak || 0;
+      SESSION.bestStreak       = userDoc.bestStreak || 0;
+      SESSION.soundEnabled     = userDoc.soundEnabled !== false;
+      CURRENT_USER = {
+        id: user.uid,
+        uid: user.uid,
+        username: userDoc.username || "",
+        av: userDoc.avatar || "a1",
+        rank: userDoc.rank || 0,
+        founder: !!userDoc.isFounder,
+        followers: userDoc.followers || 0,
+        deals: 0,
+      };
+      setIsAdmin(!!userDoc.isAdmin);
+      setAuthReady(true);
+
+      // Auto-route on first auth resolution: skip the opening screen if user is logged in
+      if (!initialAuthRouted.current) {
+        initialAuthRouted.current = true;
+        if (userDoc.profileSetup && userDoc.tosAccepted) {
+          setScreen("feed");
+        } else if (userDoc.tosAccepted) {
+          setScreen("profile");
+        } else {
+          setScreen("consent");
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Subscribe to approved deals (the live feed)
+  useEffect(() => {
+    setFeedLoading(true);
+    const unsub = fbSubscribeApprovedDeals((deals) => {
+      // Map Firestore docs into the shape DealCard expects
+      const mapped = deals.map(d => ({
+        id: d.id,
+        subject: d.subject,
+        user: { id: d.userId, username: d.userUsername, av: d.userAvatar, founder: d.userFounder, rank: d.userRank || 0 },
+        cat: d.cat, platform: d.platform, district: d.district, place: d.place,
+        address: d.address || d.district, items: d.items || [],
+        claims: d.claims || 0, ups: d.ups || 0, downs: d.downs || 0,
+        verified: !!d.verified,
+        submitted: d.submittedAt || "Recently",
+        img: d.img || null,
+      }));
+      setFeedDeals(mapped);
+      setFeedLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  // Subscribe to pending deals (admin-only review queue)
+  useEffect(() => {
+    if (!isAdmin) { setPending([]); return; }
+    const unsub = fbSubscribePendingDeals((posts) => {
+      const mapped = posts.map(p => ({
+        id: p.id,
+        subject: p.subject,
+        user: { id: p.userId, username: p.userUsername, av: p.userAvatar, founder: p.userFounder, rank: p.userRank || 0 },
+        cat: p.cat, platform: p.platform, district: p.district, place: p.place,
+        address: p.address || p.district, items: p.items || [],
+        founderPost: !!p.userFounder,
+        submitted: p.submittedAt || "Just now",
+        img: p.img || null,
+      }));
+      setPending(mapped);
+    });
+    return () => unsub();
+  }, [isAdmin]);
 
   const theme = themeMode==="auto" ? getAuto() : themeMode;
   const c = TH[theme];
@@ -3958,7 +4434,8 @@ export default function BKMApp() {
   const go      = (s) => { setFading(true); setTimeout(()=>{ setScreen(s); setFading(false); },160); };
   const push    = (type, data) => setPushed({ type, data });
   const pop     = () => setPushed(null);
-  const signOut = () => {
+  const signOut = async () => {
+    try { await fbDoSignOut(); } catch(e) {}
     SESSION.loggedIn = false;
     SESSION.isAdmin  = false;
     SESSION.isFounder = false;
@@ -4000,43 +4477,61 @@ export default function BKMApp() {
 
   const markAllRead = () => setNotifications(n => n.map(x=>({...x,read:true})));
 
-  const handleNewPost = (postData) => {
-    const id = newPostId + 1;
-    setNewPostId(id);
-    const post = {
-      id, subject:postData.subject, user:getMe(),
-      cat:postData.cat, platform:postData.platform,
-      district:postData.district, place:postData.place,
-      address:postData.address||postData.district,
-      items:postData.items, submitted:"Just now",
-      img:`https://picsum.photos/seed/new${id}/300/140`,
-      founderPost: getMe().founder,
-    };
-    setPending(q => [post, ...q]);
-    // Reward user with +3 energy for posting + success sound
-    earnReveals(3);
-    sfx.success();
-    setTimeout(() => sfx.earn(), 400);
-    addToast("+3 reveals · Thanks for posting!", "approve");
+  const handleNewPost = async (postData) => {
+    const me = getMe();
+    if (!fbAuth.currentUser) {
+      addToast("You must be signed in to post", "approve");
+      return;
+    }
+    try {
+      await fbSubmitPost({
+        subject: postData.subject,
+        cat: postData.cat,
+        platform: postData.platform,
+        district: postData.district,
+        place: postData.place,
+        address: postData.address || postData.district,
+        items: postData.items || [],
+        img: null,
+      }, {
+        uid: fbAuth.currentUser.uid,
+        username: me.username,
+        avatar: me.av || SESSION.avatar || "a1",
+        isFounder: !!me.founder,
+        rank: me.rank || 0,
+      });
+      // Reward user with +3 energy for posting + success sound
+      earnReveals(3);
+      if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { revealEnergy: SESSION.revealEnergy }).catch(()=>{});
+      sfx.success();
+      setTimeout(() => sfx.earn(), 400);
+      addToast("+3 reveals · Posted! Awaiting BKM review.", "approve");
+    } catch (e) {
+      sfx.error();
+      addToast("Couldn't submit post — try again", "approve");
+    }
   };
 
   // Called by DevReview on approve
-  const handleApprove = (post) => {
-    const deal = {
-      id:post.id, subject:post.subject, user:post.user,
-      cat:post.cat, platform:post.platform,
-      district:post.district, place:post.place,
-      address:post.address||post.district,
-      items:post.items, ups:0, downs:0, claims:0,
-      time:"Just now", verified:true, img:post.img,
-    };
-    setFeedDeals(d => [deal, ...d]);
-    setPending(q => q.filter(x=>x.id!==post.id));
-    if (post.user.id === getMe().id) addToast("Your post is live on the feed!", "approve");
+  const handleApprove = async (post) => {
+    if (!fbAuth.currentUser) return;
+    try {
+      await fbApprovePost(post.id, fbAuth.currentUser.uid);
+      // Live feed will update via subscription. No need to mutate local state.
+      if (post.user?.id === getMe().id) addToast("Your post is live on the feed!", "approve");
+    } catch (e) {
+      addToast("Approve failed — try again", "approve");
+    }
   };
 
-  const handleReject = (post) => {
-    setPending(q => q.filter(x=>x.id!==post.id));
+  const handleReject = async (post) => {
+    if (!fbAuth.currentUser) return;
+    try {
+      await fbRejectPost(post.id, fbAuth.currentUser.uid);
+      // Subscription will remove from queue automatically.
+    } catch (e) {
+      addToast("Reject failed — try again", "approve");
+    }
   };
 
   const showTabs = screen==="feed";
@@ -4141,23 +4636,73 @@ export default function BKMApp() {
             onStart={()=>go("register")}
             onLogin={()=>go("login")}
             onMerchant={()=>go("merchantLogin")}
-            onDev={()=>{
-              SESSION.loggedIn=true; SESSION.isAdmin=true; SESSION.isFounder=true;
-              CURRENT_USER = ME;
-              setIsAdmin(true); go("feed");
+            onDev={async ()=>{
+              try {
+                const { uid, isNew } = await fbSignInDev();
+                if (isNew) {
+                  // First-time DEV: create the user doc with admin + founder flags
+                  await fbCreateUserDoc(uid, {
+                    username: "swiss",
+                    avatar: "a3",
+                    isAdmin: true,
+                    isFounder: true,
+                    profileSetup: true,
+                    tosAccepted: true,
+                    rank: 2,
+                  });
+                } else {
+                  // Existing dev account: ensure flags
+                  await fbUpdateUserDoc(uid, { isAdmin: true, isFounder: true }).catch(()=>{});
+                }
+                SESSION.loggedIn=true; SESSION.isAdmin=true; SESSION.isFounder=true;
+                CURRENT_USER = ME;
+                setIsAdmin(true);
+                go("feed");
+              } catch (e) {
+                // Fallback: stay in-memory admin if Firebase fails
+                SESSION.loggedIn=true; SESSION.isAdmin=true; SESSION.isFounder=true;
+                CURRENT_USER = ME;
+                setIsAdmin(true);
+                go("feed");
+              }
             }}
             themeMode={themeMode} setThemeMode={setThemeMode} theme={theme} lang={lang} setLang={setLang}
           />}
-          {screen==="register"      && <Register theme={theme} lang={lang} onNext={()=>go("otp")} onBack={()=>go("opening")} onLogin={()=>go("login")}/>}
-          {screen==="login"         && <Login    theme={theme} lang={lang} onNext={()=>go("otp")} onBack={()=>go("opening")} onRegister={()=>go("register")}/>}
-          {screen==="otp"           && <OTP      theme={theme} lang={lang} onVerify={()=>{ SESSION.tosAccepted?go("feed"):go("consent"); }} onBack={()=>go("register")}/>}
-          {screen==="consent"       && <BetaConsent theme={theme} onAccept={()=>{ SESSION.tosAccepted=true; go("profile"); }}/>}
-          {screen==="profile"       && <ProfileSetup theme={theme} lang={lang} onComplete={(data)=>{
+          {screen==="register"      && <Register theme={theme} lang={lang} onNext={(phone, email)=>{
+            // Firebase signup already happened inside Register. Just save phone+email and move to OTP theater.
+            if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { phone: normalizePhone(phone), email }).catch(()=>{});
+            go("otp");
+          }} onBack={()=>go("opening")} onLogin={()=>go("login")}/>}
+          {screen==="login"         && <Login    theme={theme} lang={lang} onNext={(phone, email)=>{
+            // Firebase signin already happened. Save phone for ref and move forward.
+            if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { phone: normalizePhone(phone), email }).catch(()=>{});
+            go("otp");
+          }} onBack={()=>go("opening")} onRegister={()=>go("register")}/>}
+          {screen==="otp"           && <OTP      theme={theme} lang={lang} onVerify={()=>{
+            // Decide where to route based on the loaded user doc (mirrored on SESSION)
+            if (!SESSION.tosAccepted) go("consent");
+            else if (!SESSION.profileSetup) go("profile");
+            else go("feed");
+          }} onBack={()=>go("register")}/>}
+          {screen==="consent"       && <BetaConsent theme={theme} onAccept={async ()=>{
+            SESSION.tosAccepted=true;
+            if (fbAuth.currentUser) await fbUpdateUserDoc(fbAuth.currentUser.uid, { tosAccepted:true }).catch(()=>{});
+            // If user already has profile (returning incomplete signup), skip ahead
+            go(SESSION.profileSetup ? "feed" : "profile");
+          }}/>}
+          {screen==="profile"       && <ProfileSetup theme={theme} lang={lang} onComplete={async (data)=>{
             SESSION.profileSetup=true;
-            CURRENT_USER = { id:0, username:data.username, name:null, av:data.avatar, rank:0, founder:false, caption:"", deals:0, followers:0 };
+            SESSION.username=data.username;
+            SESSION.avatar=data.avatar;
+            CURRENT_USER = { id: fbAuth.currentUser?.uid || 0, uid: fbAuth.currentUser?.uid, username:data.username, name:null, av:data.avatar, rank:0, founder:!!SESSION.isFounder, caption:"", deals:0, followers:0 };
+            if (fbAuth.currentUser) await fbUpdateUserDoc(fbAuth.currentUser.uid, { username:data.username.toLowerCase(), avatar:data.avatar, profileSetup:true }).catch(()=>{});
             go("onboarding");
           }}/>}
-          {screen==="onboarding"    && <Onboarding theme={theme} onComplete={(interests)=>{ SESSION.loggedIn=true; SESSION.interests=interests||[]; go("feed"); }}/>}
+          {screen==="onboarding"    && <Onboarding theme={theme} onComplete={async (interests)=>{
+            SESSION.loggedIn=true; SESSION.interests=interests||[];
+            if (fbAuth.currentUser) await fbUpdateUserDoc(fbAuth.currentUser.uid, { interests: interests||[] }).catch(()=>{});
+            go("feed");
+          }}/>}
           {screen==="merchantLogin" && <MerchantLogin theme={theme} lang={lang} onLogin={()=>{ SESSION.loggedIn=true; go("merchantPortal"); }} onBack={()=>go("opening")} onApply={()=>{ setPartnerOrigin("merchantLogin"); go("partner"); }}/>}
           {screen==="merchantPortal"&& <MerchantPortal theme={theme} lang={lang} onSignOut={()=>{ SESSION.isMerchant=false; SESSION.loggedIn=false; SESSION.merchantName=""; SESSION.merchantCategory=""; go("opening"); }}/>}
           {screen==="partner"       && <PartnerRequest theme={theme} lang={lang} onBack={()=>{
