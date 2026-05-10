@@ -169,7 +169,6 @@ const fbSubmitPost = async (postData, user) => {
     verified:      false,
     status:        "pending",
     createdAt:     serverTimestamp(),
-    submittedAt:   "Just now",
   });
   return ref.id;
 };
@@ -243,15 +242,22 @@ const fbToggleFollow = async (myUid, targetUid) => {
   const snap = await getDoc(fRef);
   if (snap.exists()) {
     await deleteDoc(fRef);
-    await updateDoc(doc(fbDb, "users", myUid), { following: increment(-1) });
-    await updateDoc(doc(fbDb, "users", targetUid), { followers: increment(-1) });
+    await deleteDoc(doc(fbDb, "users", targetUid, "followers", myUid)).catch(()=>{});
+    await updateDoc(doc(fbDb, "users", myUid),     { following: increment(-1) }).catch(()=>{});
+    await updateDoc(doc(fbDb, "users", targetUid), { followers: increment(-1) }).catch(()=>{});
     return false;
   }
   await setDoc(fRef, { targetUid, createdAt: serverTimestamp() });
-  await updateDoc(doc(fbDb, "users", myUid), { following: increment(1) });
-  await updateDoc(doc(fbDb, "users", targetUid), { followers: increment(1) });
+  await setDoc(doc(fbDb, "users", targetUid, "followers", myUid), { followerUid: myUid, createdAt: serverTimestamp() }).catch(()=>{});
+  await updateDoc(doc(fbDb, "users", myUid),     { following: increment(1) }).catch(()=>{});
+  await updateDoc(doc(fbDb, "users", targetUid), { followers: increment(1) }).catch(()=>{});
   return true;
 };
+
+const fbSubscribeFollowers = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "followers"),
+  s => cb(s.docs.map(d => ({ uid: d.id, ...d.data() }))),
+  err => { console.error("[BKM] followers error:", err); cb([]); }
+);
 
 const fbSubscribeUserVotes     = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "votes"),     s => { const m={}; s.docs.forEach(d => m[d.id]=d.data().dir); cb(m); });
 const fbSubscribeUserBookmarks = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "bookmarks"), s => cb(new Set(s.docs.map(d => d.id))));
@@ -259,6 +265,39 @@ const fbSubscribeUserClaimed   = (uid, cb) => onSnapshot(collection(fbDb, "users
 const fbSubscribeUserFollows   = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "follows"),   s => cb(new Set(s.docs.map(d => d.id))));
 
 // === Partner requests ===
+// === Time helpers ===
+const formatRelativeTime = (ts) => {
+  // Accepts Firestore Timestamp, Date, number (ms), or ISO string. Returns "2h ago", "3d ago", etc.
+  if (!ts) return "Recently";
+  let ms;
+  if (typeof ts === "number") ms = ts;
+  else if (typeof ts === "string") {
+    if (ts === "Just now" || ts === "Recently") return ts;
+    const parsed = Date.parse(ts);
+    if (isNaN(parsed)) return ts; // not a date string, return as-is
+    ms = parsed;
+  }
+  else if (ts.toMillis) ms = ts.toMillis();
+  else if (ts instanceof Date) ms = ts.getTime();
+  else return "Recently";
+
+  const diff = Math.max(0, Date.now() - ms);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60)        return "Just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60)        return `${min}m ago`;
+  const hr  = Math.floor(min / 60);
+  if (hr < 24)         return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7)         return `${day}d ago`;
+  const wk = Math.floor(day / 7);
+  if (wk < 5)          return `${wk}w ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12)         return `${mo}mo ago`;
+  const yr = Math.floor(day / 365);
+  return `${yr}y ago`;
+};
+
 const fbSubmitPartnerRequest = async (data) => {
   const ref = await addDoc(collection(fbDb, "partner_requests"), {
     ...data,
@@ -267,6 +306,101 @@ const fbSubmitPartnerRequest = async (data) => {
   });
   return ref.id;
 };
+
+// === Merchant listings (live from Firestore) ===
+const fbAddMerchantListing = async (data, uid) => {
+  const ref = await addDoc(collection(fbDb, "merchant_listings"), {
+    ...data,
+    merchantUid: uid,
+    createdAt:   serverTimestamp(),
+  });
+  return ref.id;
+};
+const fbDeleteMerchantListing = (id) => deleteDoc(doc(fbDb, "merchant_listings", id));
+const fbSubscribeMerchantListings = (uid, cb) => onSnapshot(query(collection(fbDb, "merchant_listings"), where("merchantUid","==",uid), limit(80)),
+  snap => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a,b) => (b.createdAt?.toMillis?.()||0) - (a.createdAt?.toMillis?.()||0));
+    cb(list);
+  },
+  err => { console.error("[BKM] merchant listings error:", err); cb([]); }
+);
+const fbSubscribeAllMerchantListings = (cb) => onSnapshot(query(collection(fbDb, "merchant_listings"), limit(200)),
+  snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+  err => { console.error("[BKM] all merchant listings error:", err); cb([]); }
+);
+
+// === Notifications (persistent, Firestore-backed) ===
+const fbCreateNotification = async (recipientUid, data) => {
+  if (!recipientUid) return;
+  // Don't notify yourself
+  if (data.actorUid && data.actorUid === recipientUid) return;
+  try {
+    await addDoc(collection(fbDb, "users", recipientUid, "notifications"), {
+      ...data,
+      read:      false,
+      createdAt: serverTimestamp(),
+    });
+  } catch (e) { console.error("[BKM] notify failed:", e); }
+};
+const fbSubscribeNotifications = (uid, cb) => onSnapshot(query(collection(fbDb, "users", uid, "notifications"), limit(60)),
+  snap => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a,b) => (b.createdAt?.toMillis?.()||0) - (a.createdAt?.toMillis?.()||0));
+    cb(list);
+  },
+  err => { console.error("[BKM] notifications error:", err); cb([]); }
+);
+const fbMarkNotificationRead = (uid, nid) => updateDoc(doc(fbDb, "users", uid, "notifications", nid), { read: true });
+const fbMarkAllNotificationsRead = async (uid) => {
+  const { getDocs } = await import("firebase/firestore");
+  const snap = await getDocs(query(collection(fbDb, "users", uid, "notifications"), where("read","==",false), limit(60)));
+  const batch = writeBatch(fbDb);
+  snap.docs.forEach(d => batch.update(d.ref, { read: true }));
+  if (!snap.empty) await batch.commit();
+};
+
+// === Reports ===
+const fbSubmitReport = async (data) => {
+  const ref = await addDoc(collection(fbDb, "reports"), {
+    ...data,
+    status:    "pending",
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+};
+const fbSubscribeReports = (cb) => onSnapshot(query(collection(fbDb, "reports"), limit(60)),
+  snap => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a,b) => (b.createdAt?.toMillis?.()||0) - (a.createdAt?.toMillis?.()||0));
+    cb(list);
+  },
+  err => { console.error("[BKM] reports error:", err); cb([]); }
+);
+const fbResolveReport = (rid, status) => updateDoc(doc(fbDb, "reports", rid), { status, resolvedAt: serverTimestamp() });
+
+// === Blocks ===
+const fbBlockUser = async (myUid, targetUid) => {
+  await setDoc(doc(fbDb, "users", myUid, "blocked", targetUid), {
+    targetUid,
+    createdAt: serverTimestamp(),
+  });
+};
+const fbUnblockUser = (myUid, targetUid) => deleteDoc(doc(fbDb, "users", myUid, "blocked", targetUid));
+const fbSubscribeUserBlocks = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "blocked"),
+  s => cb(new Set(s.docs.map(d => d.id))),
+  err => { console.error("[BKM] blocks error:", err); cb(new Set()); }
+);
+
+// === Delete deal (owner or admin) ===
+const fbDeleteDeal = (dealId) => deleteDoc(doc(fbDb, "deals", dealId));
+
+// === Followers list (who follows me) ===
+// Uses a collectionGroup query — but that needs a Firestore index. Use a simpler approach:
+// We don't have a direct way to query "who follows uid X" without an index.
+// For now we use the denormalized followers count on the user doc + a separate collection scan.
+// Future: add a /users/{uid}/followers/{follower_uid} mirror collection on every follow.
+// For Session 2 we just show the count, not the list.
 
 // === Communities ===
 const fbCreateCommunity = async (data, ownerUid, ownerUsername, ownerAvatar) => {
@@ -359,7 +493,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.6.2 · feed + ux fixes";
+const APP_VERSION = "v0.7.1 · moderation pass";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -1467,21 +1601,41 @@ function MerchantLogin({ theme, lang, onLogin, onBack, onApply }) {
   const [email, setEmail]   = useState("");
   const [password, setPass] = useState("");
   const [error, setError]   = useState("");
+  const [busy, setBusy]     = useState(false);
   const [on, setOn]         = useState(false);
   const c = TH[theme];
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
 
-  // Demo merchant credentials (in production: Firebase Auth)
-  const handleSubmit = () => {
-    if (email==="merchant@bkm.qa" && password==="merchant123") {
+  // Real Firebase merchant sign-in
+  const handleSubmit = async () => {
+    if (!email || !password || busy) return;
+    setBusy(true); setError("");
+    try {
+      const { uid } = await fbSignInMerchant(email, password);
+      // Pull the merchant's user doc to confirm they're a merchant
+      const userDoc = await fbGetUserDoc(uid);
+      if (!userDoc?.isMerchant) {
+        setError("This account is not registered as a merchant. Apply via 'Apply to be Partner'.");
+        await fbDoSignOut().catch(()=>{});
+        setBusy(false);
+        return;
+      }
       SESSION.isMerchant = true;
-      SESSION.merchantName = "Al Wakra Shawarma Palace";
-      SESSION.merchantCategory = "food";
+      SESSION.merchantName = userDoc.merchantName || "";
+      SESSION.merchantCategory = userDoc.merchantCategory || "";
+      sfx.success();
       onLogin();
-    } else {
-      setError("Invalid credentials. Demo: merchant@bkm.qa / merchant123");
-      setTimeout(()=>setError(""), 4000);
+    } catch (e) {
+      if (e.code === "auth/invalid-credential" || e.code === "auth/user-not-found" || e.code === "auth/wrong-password") {
+        setError("Invalid email or password.");
+      } else if (e.code === "auth/network-request-failed") {
+        setError("Network error. Check your connection.");
+      } else {
+        setError("Couldn't sign in. Try again.");
+      }
+      sfx.error();
+      setBusy(false);
     }
   };
 
@@ -1519,6 +1673,53 @@ function MerchantLogin({ theme, lang, onLogin, onBack, onApply }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// FollowersList — reusable, used in MerchantPortal and could be used in user Profile
+function FollowersList({ theme, merchantUid }) {
+  const [followers, setFollowers] = useState([]);
+  const [followerDocs, setFollowerDocs] = useState({}); // {uid: userDoc}
+  const c = TH[theme];
+
+  useEffect(() => {
+    if (!merchantUid) return;
+    const unsub = fbSubscribeFollowers(merchantUid, (list) => {
+      list.sort((a,b) => (b.createdAt?.toMillis?.()||0) - (a.createdAt?.toMillis?.()||0));
+      setFollowers(list);
+      // For each follower uid, fetch their user doc once
+      list.forEach(f => {
+        if (followerDocs[f.uid]) return;
+        fbGetUserDoc(f.uid).then(d => {
+          if (d) setFollowerDocs(prev => ({ ...prev, [f.uid]: d }));
+        }).catch(()=>{});
+      });
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [merchantUid]);
+
+  if (followers.length === 0) {
+    return (
+      <div style={{ textAlign:"center", padding:"32px 16px", fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>
+        No followers yet.<br/>Share your listings to grow your following.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+      {followers.map(f => {
+        const userDoc = followerDocs[f.uid];
+        const displayName = userDoc?.username || "user";
+        return (
+          <div key={f.uid} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, padding:"10px 12px", display:"flex", alignItems:"center", gap:10 }}>
+            <ColorAvatar user={{username: displayName, av: userDoc?.avatar || "a1"}} size={32}/>
+            <div style={{ flex:1, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>@{displayName}</div>
+            <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{formatRelativeTime(f.createdAt)}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1659,37 +1860,50 @@ function PartnerRequest({ theme, lang, onBack, onSubmitted }) {
 // MERCHANT PORTAL
 // ─────────────────────────────────────────────────────────────────────────────
 function MerchantPortal({ theme, lang, onSignOut }) {
-  const [tab, setTab]     = useState("dashboard");
-  const [listings, setListings] = useState(MERCHANT_LISTINGS.filter(x=>x.merchant===SESSION.merchantName));
+  const [tab, setTab]           = useState("dashboard");
+  const [listings, setListings] = useState([]);
   const [showAdd, setShowAdd]   = useState(false);
   const [newItem, setNewItem]   = useState({ name:"", price:"", description:"" });
+  const [busy, setBusy]         = useState(false);
+  const [merchantDoc, setMerchantDoc] = useState(null);
   const c = TH[theme];
 
-  const myFollowers = 124; // demo number
-  const myViews     = 1842;
-  const myRevenue   = "QAR 8,400";
+  // Subscribe to this merchant's listings + their user doc (for real follower count)
+  useEffect(() => {
+    if (!fbAuth.currentUser) return;
+    const unsubL = fbSubscribeMerchantListings(fbAuth.currentUser.uid, (l) => setListings(l));
+    const unsubU = fbSubscribeUser(fbAuth.currentUser.uid, (d) => setMerchantDoc(d));
+    return () => { unsubL(); unsubU(); };
+  }, []);
 
-  const handleAddListing = () => {
-    if (!newItem.name || !newItem.price) return;
-    const item = {
-      id: Date.now(),
-      merchant: SESSION.merchantName,
-      category: SESSION.merchantCategory,
-      name: newItem.name,
-      price: parseFloat(newItem.price),
-      description: newItem.description,
-      addedAt: new Date().toISOString(),
-    };
-    MERCHANT_LISTINGS.push(item);
-    setListings(l=>[item, ...l]);
-    setNewItem({ name:"", price:"", description:"" });
-    setShowAdd(false);
+  const myFollowers = merchantDoc?.followers || 0;
+  const myListingCount = listings.length;
+
+  const handleAddListing = async () => {
+    if (!newItem.name || !newItem.price || busy || !fbAuth.currentUser) return;
+    setBusy(true);
+    try {
+      await fbAddMerchantListing({
+        merchant: SESSION.merchantName || merchantDoc?.merchantName || "",
+        category: SESSION.merchantCategory || merchantDoc?.merchantCategory || "",
+        name: newItem.name,
+        price: parseFloat(newItem.price),
+        description: newItem.description,
+      }, fbAuth.currentUser.uid);
+      sfx.success();
+      setNewItem({ name:"", price:"", description:"" });
+      setShowAdd(false);
+    } catch (e) {
+      sfx.error();
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleDelete = (id) => {
-    const idx = MERCHANT_LISTINGS.findIndex(x=>x.id===id);
-    if (idx>=0) MERCHANT_LISTINGS.splice(idx,1);
-    setListings(l=>l.filter(x=>x.id!==id));
+  const handleDelete = async (id) => {
+    if (!confirm("Delete this listing?")) return;
+    try { await fbDeleteMerchantListing(id); sfx.voteDown(); }
+    catch(e) { sfx.error(); }
   };
 
   return (
@@ -1729,17 +1943,22 @@ function MerchantPortal({ theme, lang, onSignOut }) {
           <div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:18 }}>
               {[
-                { label:"Followers",     val: myFollowers, sub:"+12 this week" },
-                { label:"Profile Views", val: myViews,     sub:"+340 this week" },
-                { label:"Active Listings", val: listings.length, sub:"" },
-                { label:"Est. Revenue",  val: myRevenue,   sub:"This month" },
+                { label:"Followers",       val: myFollowers,      sub:"" },
+                { label:"Active Listings", val: myListingCount,   sub:"" },
               ].map((s,i)=>(
                 <div key={i} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"13px 14px" }}>
                   <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{s.label}</div>
-                  <div style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>{s.val}</div>
+                  <div style={{ fontSize:24, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>{s.val}</div>
                   {s.sub && <div style={{ fontSize:10, color:"#16A34A", fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{s.sub}</div>}
                 </div>
               ))}
+            </div>
+
+            <div style={{ background:`${c.accent}10`, border:`1px dashed ${c.accent}55`, borderRadius:12, padding:"12px 14px", marginBottom:18 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:c.accent, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6, fontFamily:"'DM Sans',sans-serif" }}>Coming Soon</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
+                Profile views, listing impressions, and conversion stats are being built. We'll surface real numbers — no fake metrics.
+              </div>
             </div>
 
             <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"14px" }}>
@@ -1808,21 +2027,7 @@ function MerchantPortal({ theme, lang, onSignOut }) {
               <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Total Followers</div>
             </div>
             <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Recent followers</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {[
-                { username:"DealHunterQ", time:"2h ago" },
-                { username:"PearlFinds", time:"5h ago" },
-                { username:"DohaDeals_", time:"1d ago" },
-                { username:"LusailLooks", time:"2d ago" },
-                { username:"NewHunter99", time:"3d ago" },
-              ].map((f,i)=>(
-                <div key={i} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, padding:"10px 12px", display:"flex", alignItems:"center", gap:10 }}>
-                  <ColorAvatar user={{username:f.username, av:f.username}} size={32}/>
-                  <div style={{ flex:1, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{f.username}</div>
-                  <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{f.time}</div>
-                </div>
-              ))}
-            </div>
+            <FollowersList theme={theme} merchantUid={fbAuth.currentUser?.uid}/>
           </div>
         )}
       </div>
@@ -1985,6 +2190,12 @@ function OTP({ theme, lang, onVerify, onBack }) {
       </div>
 
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:18 }}>
+        <div style={{ textAlign:"center", maxWidth:280, ...a(0.06) }}>
+          <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{ar?"رمز الوصول":"Access code"}</div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
+            {ar?"اضغط أي 4 أرقام للمتابعة. SMS الحقيقي قريباً.":"Beta: enter any 4 digits to continue. Real SMS verification coming soon."}
+          </div>
+        </div>
         <div style={{ ...a(0.1), display:"flex", gap:14, animation: shake?"shakeX 0.4s ease both":undefined }}>
           {code.map((digit,i) => (
             <input key={i} ref={el=>refs.current[i]=el} type="tel" maxLength={1} value={digit}
@@ -1994,15 +2205,10 @@ function OTP({ theme, lang, onVerify, onBack }) {
             />
           ))}
         </div>
-        <div style={a(0.14)}>
-          <button style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", textDecoration:"underline" }}>
-            {ar?"إعادة الإرسال":"Resend code"}
-          </button>
-        </div>
       </div>
 
       <div style={{ ...a(0.18), width:"100%" }}>
-        <Btn onClick={handleVerify} theme={theme} style={{ opacity:filled?1:0.35 }}>{ar?"تحقق":"Verify"}</Btn>
+        <Btn onClick={handleVerify} theme={theme} style={{ opacity:filled?1:0.35 }}>{ar?"متابعة":"Continue"}</Btn>
       </div>
     </div>
   );
@@ -2019,13 +2225,16 @@ const PLATFORM_META = {
   store:   { color:"#B8860B", label:"In Store" },
 };
 
-function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, onShareBonus, onPostBetter }) {
+function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, onShareBonus, onPostBetter, onReportPost, onBlockUser, onDeleteOwnPost }) {
   const [priceAnim, setPriceAnim]   = useState(false);
   const [upAnim, setUpAnim]         = useState(false);
   const [downAnim, setDownAnim]     = useState(false);
   const [revealAnim, setRevealAnim] = useState(false);
   const [bmarkAnim, setBmarkAnim]   = useState(false);
   const [showShare, setShowShare]   = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [claimCount, setClaimCount] = useState(deal.claims);
   useEffect(()=>{ setClaimCount(deal.claims); }, [deal.claims]);
   const rank      = deal.user.rank;
@@ -2218,6 +2427,107 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           >
             <Ico.Share s={14} c={c.sub}/>
           </button>
+          {/* More menu — Report / Block / Delete */}
+          <button onClick={()=>setShowMoreMenu(true)} style={{ width:34, height:34, background:"transparent", border:`1px solid ${c.border}`, borderRadius:"50%", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}
+            onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"44"}
+            onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={c.sub}><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+
+          {/* More menu modal */}
+          {showMoreMenu && (
+            <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(0,0,0,0.55)", backdropFilter:"blur(2px)", display:"flex", alignItems:"flex-end" }} onClick={()=>setShowMoreMenu(false)}>
+              <div style={{ background:c.bg, borderRadius:"22px 22px 0 0", padding:"20px 18px 28px", width:"100%", animation:"slideUp 0.3s cubic-bezier(0.34,1.2,0.64,1) both" }} onClick={e=>e.stopPropagation()}>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:16 }}>
+                  <div style={{ width:36, height:4, borderRadius:2, background:c.muted }}/>
+                </div>
+                {isOwn && (
+                  <button onClick={()=>{ setShowMoreMenu(false); setShowDeleteConfirm(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
+                    <div style={{ width:36, height:36, borderRadius:10, background:"#DC262615", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 01-2 2H9a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:"#DC2626", fontFamily:"'DM Sans',sans-serif" }}>Delete this post</div>
+                      <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Permanently remove from the feed</div>
+                    </div>
+                  </button>
+                )}
+                {!isOwn && (
+                  <>
+                    <button onClick={()=>{ setShowMoreMenu(false); setShowReport(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Report this post</div>
+                        <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Spam, fake price, offensive content</div>
+                      </div>
+                    </button>
+                    <button onClick={()=>{ setShowMoreMenu(false); if (onBlockUser) onBlockUser(deal.user); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Block @{deal.user.username}</div>
+                        <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Hide their posts from your feed</div>
+                      </div>
+                    </button>
+                  </>
+                )}
+                <button onClick={()=>setShowMoreMenu(false)} style={{ width:"100%", padding:"14px", background:"transparent", border:`1px solid ${c.border}`, borderRadius:12, marginTop:10, fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {/* Delete confirmation modal */}
+          {showDeleteConfirm && (
+            <div style={{ position:"fixed", inset:0, zIndex:201, background:"rgba(0,0,0,0.6)", backdropFilter:"blur(3px)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={()=>setShowDeleteConfirm(false)}>
+              <div style={{ background:c.bg, borderRadius:18, padding:"22px 20px", maxWidth:340, width:"100%", animation:"fu 0.25s ease both" }} onClick={e=>e.stopPropagation()}>
+                <div style={{ fontSize:17, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Delete this post?</div>
+                <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:16 }}>This will permanently remove your post from the feed. You can't undo this.</div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <button onClick={()=>setShowDeleteConfirm(false)} style={{ flex:1, padding:"12px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:11, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
+                  <button onClick={async ()=>{ setShowDeleteConfirm(false); if (onDeleteOwnPost) await onDeleteOwnPost(deal.id); }} style={{ flex:1, padding:"12px 0", background:"#DC2626", border:"none", borderRadius:11, fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Delete</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Report modal */}
+          {showReport && (
+            <div style={{ position:"fixed", inset:0, zIndex:201, background:"rgba(0,0,0,0.6)", backdropFilter:"blur(3px)", display:"flex", alignItems:"flex-end" }} onClick={()=>setShowReport(false)}>
+              <div style={{ background:c.bg, borderRadius:"22px 22px 0 0", padding:"22px 20px 28px", width:"100%", animation:"slideUp 0.3s cubic-bezier(0.34,1.2,0.64,1) both" }} onClick={e=>e.stopPropagation()}>
+                <div style={{ display:"flex", justifyContent:"center", marginBottom:14 }}>
+                  <div style={{ width:36, height:4, borderRadius:2, background:c.muted }}/>
+                </div>
+                <div style={{ fontSize:17, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:5 }}>Report this post</div>
+                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:16 }}>Pick a reason. BKM admins will review it.</div>
+                {[
+                  { key:"spam",        label:"Spam or promotional",    sub:"Repeated posts, ads, scams" },
+                  { key:"fake",        label:"Fake or wrong price",     sub:"Doesn't match reality" },
+                  { key:"offensive",   label:"Offensive content",       sub:"Hate speech, harassment" },
+                  { key:"impersonate", label:"Impersonating someone",   sub:"Pretending to be a real business or person" },
+                  { key:"other",       label:"Something else",          sub:"" },
+                ].map(r => (
+                  <button key={r.key} onClick={async ()=>{
+                    setShowReport(false);
+                    if (onReportPost) await onReportPost(deal, r.key);
+                  }} style={{ width:"100%", display:"flex", alignItems:"flex-start", gap:10, padding:"12px 12px", background:"transparent", border:`1px solid ${c.border}`, borderRadius:11, marginBottom:8, cursor:"pointer", textAlign:"left", transition:"border-color 0.15s" }}
+                    onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
+                    onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
+                  >
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{r.label}</div>
+                      {r.sub && <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{r.sub}</div>}
+                    </div>
+                    <span style={{ fontSize:14, color:c.sub }}>›</span>
+                  </button>
+                ))}
+                <button onClick={()=>setShowReport(false)} style={{ width:"100%", padding:"12px", background:"transparent", border:"none", marginTop:6, fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
+              </div>
+            </div>
+          )}
 
           {/* Share sheet */}
           {showShare && (() => {
@@ -2275,12 +2585,14 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // ─────────────────────────────────────────────────────────────────────────────
 // FEED
 // ─────────────────────────────────────────────────────────────────────────────
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||[]);
-  const [claimed, setClaimed]       = useState(new Set(SESSION.claimed));
-  const [votes, setVotes]           = useState({});
-  const [bookmarked, setBookmarked] = useState(new Set());
+  // These now come from Firestore subscriptions in App.jsx, passed via props.
+  // We keep local state aliases as the source-of-truth for instant optimistic UI updates.
+  const claimed     = userClaimed     || new Set();
+  const votes       = userVotes       || {};
+  const bookmarked  = userBookmarks   || new Set();
   const [activeCat, setActiveCat]   = useState("all");
   // Default location to "Doha, Qatar" so we never block the feed with a permission modal.
   // User can tap the location chip in the header to switch districts manually.
@@ -2381,38 +2693,80 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
     if (limitReached) { sfx.error(); setShowLimitModal(true); return; }
     if (!consumeReveal()) { sfx.error(); setShowLimitModal(true); return; }
     sfx.reveal();
-    SESSION.claimed.add(id);
     setEnergy(SESSION.revealEnergy);
-    setClaimed(s => { const n=new Set(s); n.add(id); return n; });
-    setDeals(ds => ds.map(d => d.id===id ? { ...d, claims: d.claims+1 } : d));
+    // Persist energy to user doc + claim to Firestore
+    if (fbAuth.currentUser) {
+      fbUpdateUserDoc(fbAuth.currentUser.uid, {
+        revealEnergy: SESSION.revealEnergy,
+        lastEnergyUpdate: SESSION.lastEnergyUpdate,
+      }).catch(()=>{});
+      fbRecordReveal(fbAuth.currentUser.uid, id).catch(()=>{});
+    }
+    // Optimistic local count bump (subscription will sync the real number from Firestore)
+    setDeals(ds => ds.map(d => d.id===id ? { ...d, claims: (d.claims||0)+1 } : d));
 
     // Update streak (only counts once per day)
     const wasNewStreakDay = SESSION.lastRevealDate !== todayKey();
     updateStreakOnReveal();
+    if (fbAuth.currentUser && wasNewStreakDay) {
+      fbUpdateUserDoc(fbAuth.currentUser.uid, {
+        lastRevealDate: SESSION.lastRevealDate,
+        streak: SESSION.streak,
+        bestStreak: SESSION.bestStreak,
+      }).catch(()=>{});
+    }
     if (wasNewStreakDay && SESSION.streak >= 2) {
       setTimeout(() => { sfx.streak(); showBonus(0, `${SESSION.streak}-day streak`); }, 600);
     }
 
     // Notify the poster if it's their own post being revealed
     const deal = deals.find(d=>d.id===id);
+    if (deal && deal.user.id !== fbAuth.currentUser.uid) {
+      const me = getMe();
+      fbCreateNotification(deal.user.id, {
+        type: "reveal",
+        text: `@${me.username} revealed your post about ${deal.place}`,
+        actorUid: fbAuth.currentUser.uid,
+        actorUsername: me.username,
+        dealId: id,
+      });
+    }
     if (deal && deal.user.id === getMe().id && onReveal) onReveal(`Someone revealed your post about ${deal.place}`);
-    if (SESSION.revealEnergy <= 0) setTimeout(()=>setShowLimitModal(true), 800);
+    if (SESSION.revealEnergy <= 0) {
+      // Cooldown so the modal doesn't re-spam
+      if (!Feed._lastLimitModal || Date.now()-Feed._lastLimitModal > 5000) {
+        Feed._lastLimitModal = Date.now();
+        setTimeout(()=>setShowLimitModal(true), 800);
+      }
+    }
   };
 
   const handleVote = (id, dir) => {
+    if (!fbAuth.currentUser) return;
     const prev = votes[id] || null;
-    setVotes(v => ({ ...v, [id]: prev===dir ? null : dir }));
+    // Optimistic local update on the deal counters (subscription will sync)
     setDeals(ds => ds.map(d => {
       if (d.id !== id) return d;
-      let ups=d.ups, downs=d.downs;
+      let ups=d.ups||0, downs=d.downs||0;
       if (prev==="up")   ups   = Math.max(0, ups-1);
       if (prev==="down") downs = Math.max(0, downs-1);
       if (dir!==prev) { if(dir==="up") ups++; if(dir==="down") downs++; }
       return { ...d, ups, downs };
     }));
-    // Notify poster on upvote of their own post
+    fbRecordVote(fbAuth.currentUser.uid, id, dir).catch(()=>{});
     if (dir==="up" && prev!=="up") {
       const deal = deals.find(d=>d.id===id);
+      if (deal && deal.user.id !== fbAuth.currentUser.uid) {
+        // Notify the deal owner
+        const me = getMe();
+        fbCreateNotification(deal.user.id, {
+          type: "upvote",
+          text: `@${me.username} upvoted your post about ${deal.place}`,
+          actorUid: fbAuth.currentUser.uid,
+          actorUsername: me.username,
+          dealId: id,
+        });
+      }
       if (deal && deal.user.id === getMe().id && onUpvote) onUpvote(`${getMe().username} upvoted your post about ${deal.place}`);
     }
   };
@@ -2433,7 +2787,10 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
     }
     return base;
   })();
-  const handleBmark  = (id) => setBookmarked(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const handleBmark  = (id) => {
+    if (!fbAuth.currentUser) return;
+    fbToggleBookmark(fbAuth.currentUser.uid, id).catch(()=>{});
+  };
   const handleAddItem = (dealId, item) => {
     setDeals(ds => ds.map(d => d.id===dealId ? { ...d, items:[...d.items,{n:item.n,p:parseFloat(item.p)}] } : d));
   };
@@ -2722,9 +3079,12 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
               onLocationTap={onLocationTap}
               onOpenPost={onOpenPost}
               limitReached={limitReached}
-              isOwn={deal.user.id === getMe().id}
+              isOwn={fbAuth.currentUser ? deal.user.id === fbAuth.currentUser.uid : false}
               onShareBonus={(amt)=>{ setEnergy(SESSION.revealEnergy); sfx.earn(); showBonus(amt, "Thanks for sharing!"); }}
               onPostBetter={onPostBetter}
+              onReportPost={onReportPost}
+              onBlockUser={onBlockUser}
+              onDeleteOwnPost={onDeleteOwnPost}
             />
           ))}
         </div>
@@ -2902,29 +3262,59 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
 function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut, onNotifications, onSettings, unreadCount=0, onViewFollowing }) {
   const resolvedUser = userProp || getMe();
   const [on, setOn]                 = useState(false);
-  const [following, setFollowing]   = useState(SESSION.following.has(resolvedUser.id));
+  const [following, setFollowing]   = useState(false);
   const [followAnim, setFollowAnim] = useState(false);
+  const [myDeals, setMyDeals]       = useState([]); // real Firestore posts by this user
   const c = TH[theme]; const ar = lang==="ar";
   const user = resolvedUser;
-  const isOwn = user.id === getMe().id;
+  const targetUid = user.uid || user.id;
+  const isOwn = (fbAuth.currentUser && targetUid === fbAuth.currentUser.uid) || (user.id === getMe().id && !fbAuth.currentUser);
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
-  useEffect(()=>{ setFollowing(SESSION.following.has(user.id)); }, [user.id]);
+
+  // Listen to follow state from Firestore
+  useEffect(() => {
+    if (!fbAuth.currentUser || isOwn) return;
+    const unsub = fbSubscribeUserFollows(fbAuth.currentUser.uid, (s) => setFollowing(s.has(targetUid)));
+    return () => unsub();
+  }, [targetUid, isOwn]);
+
+  // Pull this user's approved deals from Firestore in real time
+  useEffect(() => {
+    if (!targetUid) { setMyDeals([]); return; }
+    const q = query(collection(fbDb, "deals"), where("status","==","approved"), where("userId","==",targetUid), limit(40));
+    const unsub = onSnapshot(q,
+      snap => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        list.sort((a,b) => (b.approvedAt?.toMillis?.()||0) - (a.approvedAt?.toMillis?.()||0));
+        setMyDeals(list);
+      },
+      err => { console.error("[BKM] profile deals error:", err); setMyDeals([]); }
+    );
+    return () => unsub();
+  }, [targetUid]);
+
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
-  const myDeals = DEALS.filter(d=>d.user.id===user.id);
   const rank = RANKS[user.rank];
 
-  const handleFollow = () => {
+  const handleFollow = async () => {
+    if (!fbAuth.currentUser || isOwn) return;
     setFollowAnim(true);
     setTimeout(()=>setFollowAnim(false),500);
-    if (SESSION.following.has(user.id)) {
-      sfx.voteDown();
-      SESSION.following.delete(user.id);
-      setFollowing(false);
-    } else {
-      sfx.voteUp();
-      SESSION.following.add(user.id);
-      setFollowing(true);
+    if (following) { sfx.voteDown(); }
+    else           { sfx.voteUp();   }
+    try {
+      const nowFollowing = await fbToggleFollow(fbAuth.currentUser.uid, targetUid);
+      if (nowFollowing) {
+        const me = getMe();
+        fbCreateNotification(targetUid, {
+          type: "follow",
+          text: `@${me.username} started following you`,
+          actorUid: fbAuth.currentUser.uid,
+          actorUsername: me.username,
+        });
+      }
     }
+    catch(e) { sfx.error(); }
   };
 
   return (
@@ -3084,9 +3474,22 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
 // ─────────────────────────────────────────────────────────────────────────────
 function LocationPage({ district, theme, lang, onBack, onUserTap }) {
   const [on, setOn] = useState(false);
+  const [deals, setDealsList] = useState([]);
   const c = TH[theme];
-  const deals = DEALS.filter(d=>d.district===district);
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
+  useEffect(() => {
+    if (!district) return;
+    const q = query(collection(fbDb, "deals"), where("status","==","approved"), where("district","==",district), limit(40));
+    const unsub = onSnapshot(q,
+      snap => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        list.sort((a,b) => (b.approvedAt?.toMillis?.()||0) - (a.approvedAt?.toMillis?.()||0));
+        setDealsList(list);
+      },
+      err => { console.error("[BKM] location deals error:", err); setDealsList([]); }
+    );
+    return () => unsub();
+  }, [district]);
   const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
 
   return (
@@ -3199,7 +3602,13 @@ function FollowingList({ theme, lang, onBack, onUserTap }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SEARCH TAB
 // ─────────────────────────────────────────────────────────────────────────────
-function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
+function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }) {
+  const [merchantListings, setMerchantListings] = useState([]);
+  useEffect(() => {
+    if (!fbAuth.currentUser) return;
+    const unsub = fbSubscribeAllMerchantListings((list) => setMerchantListings(list));
+    return () => unsub();
+  }, []);
   const [query, setQuery]         = useState(initialQuery);
   const [submitted, setSubmitted] = useState(initialQuery);
   const [focused, setFocused]     = useState(false);
@@ -3221,20 +3630,20 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
 
     const candidates = [];
     Object.values(SEARCH_RESULTS).flat().forEach(r => candidates.push({ ...r, _source: "search" }));
-    DEALS.forEach(deal => {
-      deal.items.forEach(item => candidates.push({
-        item: item.n, vendor: deal.place, platform: deal.platform, district: deal.district,
-        price: item.p, deliveryFee: 0,
-        rating: (deal.ups / Math.max(1, deal.ups+deal.downs)) * 5,
+    liveDeals.forEach(deal => {
+      (deal.items || []).forEach(item => candidates.push({
+        item: item.n || item.name, vendor: deal.place, platform: deal.platform, district: deal.district,
+        price: Number(item.p ?? item.price ?? 0), deliveryFee: 0,
+        rating: ((deal.ups||0) / Math.max(1, (deal.ups||0)+(deal.downs||0))) * 5,
         verified: deal.verified !== false,
-        postedBy: deal.user.username, rank: deal.user.rank, img: deal.img,
+        postedBy: deal.user?.username || "", rank: deal.user?.rank || 0, img: deal.img,
         cat: deal.cat, _source: "feed", _dealId: deal.id,
       }));
     });
-    MERCHANT_LISTINGS.forEach(listing => candidates.push({
+    merchantListings.forEach(listing => candidates.push({
       item: listing.name, vendor: listing.merchant, platform: "store", district: "",
-      price: listing.price, deliveryFee: 0, rating: 5, verified: true,
-      postedBy: listing.merchant, rank: 4, img: "", cat: listing.cat || "stores",
+      price: Number(listing.price)||0, deliveryFee: 0, rating: 5, verified: true,
+      postedBy: listing.merchant, rank: 4, img: "", cat: listing.category || "stores",
       _source: "merchant",
     }));
 
@@ -3795,16 +4204,34 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function DevReview({ theme, pendingPosts, onApprove, onReject }) {
   const queue = pendingPosts || [];
+  const [section, setSection]         = useState("posts"); // "posts" | "reports"
   const [selected, setSelected]       = useState(null);
-  const [busyId, setBusyId]           = useState(null); // disable while in-flight
+  const [busyId, setBusyId]           = useState(null);
   const [approvedCount, setApprovedCount] = useState(0);
   const [rejectedCount, setRejectedCount] = useState(0);
+  const [reports, setReports]         = useState([]);
+  const [reportBusy, setReportBusy]   = useState(null);
   const [on, setOn]                   = useState(false);
   const c = TH[theme];
 
   useEffect(()=>{ setTimeout(()=>setOn(true),60); },[]);
 
+  // Subscribe to all reports
+  useEffect(() => {
+    const unsub = fbSubscribeReports((list) => setReports(list));
+    return () => unsub();
+  }, []);
+
   const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
+
+  const resolveReport = async (rid, status) => {
+    if (reportBusy) return;
+    setReportBusy(rid);
+    try { await fbResolveReport(rid, status); }
+    finally { setReportBusy(null); }
+  };
+
+  const pendingReports = reports.filter(r => r.status === "pending");
 
   const approve = async (post) => {
     if (busyId) return;
@@ -3923,31 +4350,45 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
       <div style={{ flex:1, overflowY:"auto", padding:"10px 0 24px" }}>
 
         {/* Header */}
-        <div style={{ padding:"4px 20px 16px", ...a(0.04) }}>
+        <div style={{ padding:"4px 20px 14px", ...a(0.04) }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D6FEB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             <span style={{ fontSize:16, fontWeight:700, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif" }}>BKM Dev Console</span>
           </div>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Post approval queue · {queue.length} pending</div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Moderation tools</div>
         </div>
 
-        {/* Stats row */}
-        <div style={{ padding:"0 20px 16px", display:"flex", gap:10, ...a(0.07) }}>
-          {[{label:"Pending",val:queue.length,col:"#F59E0B"},{label:"Approved",val:approvedCount,col:"#16A34A"},{label:"Rejected",val:rejectedCount,col:"#EF4444"}].map(s=>(
-            <div key={s.label} style={{ flex:1, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, padding:"12px 0", textAlign:"center" }}>
-              <div style={{ fontSize:22, fontWeight:800, color:s.col, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
-              <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
-            </div>
+        {/* Section toggle */}
+        <div style={{ padding:"0 20px 12px", display:"flex", gap:8, ...a(0.05) }}>
+          {[
+            { key:"posts",   label:`Posts (${queue.length})` },
+            { key:"reports", label:`Reports (${pendingReports.length})` },
+          ].map(s => (
+            <button key={s.key} onClick={()=>setSection(s.key)} style={{ flex:1, padding:"10px 8px", background: section===s.key ? "#1D6FEB" : c.surface, border:`1px solid ${section===s.key ? "#1D6FEB" : c.border}`, borderRadius:11, fontSize:12, fontWeight:700, color: section===s.key ? "#FFFFFF" : c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.15s" }}>
+              {s.label}
+            </button>
           ))}
         </div>
 
-        {/* Pending queue */}
-        {queue.length === 0 ? (
-          <div style={{ textAlign:"center", padding:"40px 24px", ...a(0.1) }}>
-            <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Queue is clear</div>
-            <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>All posts have been reviewed.</div>
-          </div>
-        ) : (
+        {section === "posts" && (
+          <>
+            {/* Stats row */}
+            <div style={{ padding:"0 20px 16px", display:"flex", gap:10, ...a(0.07) }}>
+              {[{label:"Pending",val:queue.length,col:"#F59E0B"},{label:"Approved",val:approvedCount,col:"#16A34A"},{label:"Rejected",val:rejectedCount,col:"#EF4444"}].map(s=>(
+                <div key={s.label} style={{ flex:1, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, padding:"12px 0", textAlign:"center" }}>
+                  <div style={{ fontSize:22, fontWeight:800, color:s.col, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
+                  <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Pending queue */}
+            {queue.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"40px 24px", ...a(0.1) }}>
+                <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Queue is clear</div>
+                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>All posts have been reviewed.</div>
+              </div>
+            ) : (
           <div style={{ padding:"0 20px", display:"flex", flexDirection:"column", gap:10, ...a(0.1) }}>
             {queue.map((post,i)=>{
               const p = PM(post.platform);
@@ -3977,6 +4418,51 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
                 </button>
               );
             })}
+          </div>
+        )}
+          </>
+        )}
+
+        {section === "reports" && (
+          <div style={{ padding:"0 20px", ...a(0.07) }}>
+            {pendingReports.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"40px 24px" }}>
+                <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>No pending reports</div>
+                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Community is healthy.</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {pendingReports.map((r, i) => {
+                  const reasonLabel = ({
+                    spam: "Spam or promotional",
+                    fake: "Fake or wrong price",
+                    offensive: "Offensive content",
+                    impersonate: "Impersonating someone",
+                    other: "Other",
+                  })[r.reason] || r.reason;
+                  return (
+                    <div key={r.id} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"12px 14px" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                        <div style={{ background:"#EF444418", border:"1px solid #EF444444", borderRadius:6, padding:"3px 8px" }}>
+                          <span style={{ fontSize:10, fontWeight:700, color:"#EF4444", fontFamily:"'DM Sans',sans-serif" }}>{reasonLabel}</span>
+                        </div>
+                        <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{formatRelativeTime(r.createdAt)}</span>
+                      </div>
+                      <div style={{ fontSize:12, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:6 }}>
+                        Post about <strong>{r.dealPlace || "(unknown)"}</strong>
+                      </div>
+                      <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>
+                        Reported by @{r.reporterUsername || "user"} · deal id: {r.dealId?.slice(0,8) || "—"}
+                      </div>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button onClick={()=>resolveReport(r.id, "dismissed")} disabled={reportBusy===r.id} style={{ flex:1, padding:"9px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:10, fontSize:12, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:reportBusy===r.id?"default":"pointer", opacity:reportBusy===r.id?0.5:1 }}>Dismiss</button>
+                        <button onClick={()=>resolveReport(r.id, "actioned")} disabled={reportBusy===r.id} style={{ flex:1, padding:"9px 0", background:"#EF4444", border:"none", borderRadius:10, fontSize:12, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:reportBusy===r.id?"default":"pointer", opacity:reportBusy===r.id?0.5:1 }}>Mark Actioned</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -4187,7 +4673,7 @@ function ProfileSetup({ theme, lang, onComplete }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // NOTIFICATIONS SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
-function NotificationsScreen({ notifications, theme, onBack, onMarkRead }) {
+function NotificationsScreen({ notifications, theme, onBack, onMarkRead, onMarkOne }) {
   const c = TH[theme];
   const renderIcon = (type, color) => {
     const props = { width:18, height:18, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
@@ -4215,16 +4701,16 @@ function NotificationsScreen({ notifications, theme, onBack, onMarkRead }) {
         ) : notifications.map((n,i) => {
           const tone = n.read ? c.sub : c.accent;
           return (
-            <div key={n.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`${c.accent}05`, animation:`fu 0.3s ease ${i*0.04}s both` }}>
+            <button key={n.id} onClick={()=>{ if (!n.read && onMarkOne) onMarkOne(n.id); }} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`${c.accent}05`, animation:`fu 0.3s ease ${i*0.04}s both`, border:"none", textAlign:"left", cursor: n.read ? "default" : "pointer", width:"100%" }}>
               <div style={{ width:38, height:38, borderRadius:11, background:n.read?c.muted:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                 {renderIcon(n.type, tone)}
               </div>
-              <div style={{ flex:1 }}>
+              <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", fontWeight:n.read?400:600, lineHeight:1.4 }}>{n.text}</div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{n.time} ago</div>
+                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{n.time}</div>
               </div>
               {!n.read && <div style={{ width:7, height:7, borderRadius:"50%", background:c.accent, flexShrink:0 }}/>}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -4979,6 +5465,12 @@ export default function BKMApp() {
   const [authReady, setAuthReady]   = useState(false);
   const [fbUser, setFbUser]         = useState(null);
   const [activeCommunityId, setActiveCommunityId] = useState(null);
+  // User-action state — persisted to Firestore via subscriptions below
+  const [userVotes,     setUserVotes]     = useState({});             // {dealId: "up"|"down"}
+  const [userBookmarks, setUserBookmarks] = useState(new Set());      // Set<dealId>
+  const [userClaimed,   setUserClaimed]   = useState(new Set());      // Set<dealId>
+  const [userFollows,   setUserFollows]   = useState(new Set());      // Set<targetUid>
+  const [userBlocks,    setUserBlocks]    = useState(new Set());      // Set<blockedUid>
 
   // === Firebase auth state listener — keeps UI in sync with auth ===
   const initialAuthRouted = useRef(false);
@@ -5060,8 +5552,9 @@ export default function BKMApp() {
     return () => unsub();
   }, []);
 
-  // Subscribe to approved deals (the live feed)
+  // Subscribe to approved deals (the live feed) — wait for auth so security rules can pass
   useEffect(() => {
+    if (!fbUser) { setFeedDeals([]); setFeedLoading(false); return; }
     setFeedLoading(true);
     const unsub = fbSubscribeApprovedDeals((deals) => {
       // Map Firestore docs into the shape DealCard expects
@@ -5073,18 +5566,19 @@ export default function BKMApp() {
         address: d.address || d.district, items: d.items || [],
         claims: d.claims || 0, ups: d.ups || 0, downs: d.downs || 0,
         verified: !!d.verified,
-        submitted: d.submittedAt || "Recently",
+        submitted: formatRelativeTime(d.approvedAt || d.createdAt),
+        time: formatRelativeTime(d.approvedAt || d.createdAt),
         img: d.img || null,
       }));
       setFeedDeals(mapped);
       setFeedLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [fbUser]);
 
-  // Subscribe to pending deals (admin-only review queue)
+  // Subscribe to pending deals (admin-only review queue) — also gated on auth
   useEffect(() => {
-    if (!isAdmin) { setPending([]); return; }
+    if (!fbUser || !isAdmin) { setPending([]); return; }
     const unsub = fbSubscribePendingDeals((posts) => {
       const mapped = posts.map(p => ({
         id: p.id,
@@ -5093,13 +5587,27 @@ export default function BKMApp() {
         cat: p.cat, platform: p.platform, district: p.district, place: p.place,
         address: p.address || p.district, items: p.items || [],
         founderPost: !!p.userFounder,
-        submitted: p.submittedAt || "Just now",
+        submitted: formatRelativeTime(p.createdAt),
         img: p.img || null,
       }));
       setPending(mapped);
     });
     return () => unsub();
-  }, [isAdmin]);
+  }, [fbUser, isAdmin]);
+
+  // Subscribe to the current user's votes / bookmarks / claimed / follows / blocks
+  useEffect(() => {
+    if (!fbUser) {
+      setUserVotes({}); setUserBookmarks(new Set()); setUserClaimed(new Set()); setUserFollows(new Set()); setUserBlocks(new Set());
+      return;
+    }
+    const unsubV = fbSubscribeUserVotes(fbUser.uid,     m => setUserVotes(m));
+    const unsubB = fbSubscribeUserBookmarks(fbUser.uid, s => setUserBookmarks(s));
+    const unsubC = fbSubscribeUserClaimed(fbUser.uid,   s => { setUserClaimed(s); SESSION.claimed = s; });
+    const unsubF = fbSubscribeUserFollows(fbUser.uid,   s => { setUserFollows(s); SESSION.following = s; });
+    const unsubBl= fbSubscribeUserBlocks(fbUser.uid,    s => setUserBlocks(s));
+    return () => { unsubV(); unsubB(); unsubC(); unsubF(); unsubBl(); };
+  }, [fbUser]);
 
   const theme = themeMode==="auto" ? getAuto() : themeMode;
   const c = TH[theme];
@@ -5133,23 +5641,39 @@ export default function BKMApp() {
     go("opening");
   };
 
-  const [notifications, setNotifications] = useState([
-    { id:1, type:"reveal", text:"DealHunterQ revealed your shawarma post", time:"2m", read:false },
-    { id:2, type:"upvote", text:"PearlFinds upvoted your shawarma post",   time:"5m", read:false },
-    { id:3, type:"reveal", text:"DohaDeals_ revealed your shawarma post",  time:"12m",read:true  },
-  ]);
+  // Notifications are now backed by Firestore: subscribe live, mirror to local state
+  const [notifications, setNotifications] = useState([]);
   const [toasts, setToasts]             = useState([]);
   const [notifSettings, setNotifSettings] = useState({ reveals:true, upvotes:true, follows:true, nearby:false });
   const unreadCount = notifications.filter(n=>!n.read).length;
 
+  useEffect(() => {
+    if (!fbUser) { setNotifications([]); return; }
+    const unsub = fbSubscribeNotifications(fbUser.uid, (list) => {
+      // Format each notification's time using formatRelativeTime
+      setNotifications(list.map(n => ({ ...n, time: formatRelativeTime(n.createdAt) })));
+    });
+    return () => unsub();
+  }, [fbUser]);
+
+  // Toasts only — for in-session feedback. NOT pushed to notifications anymore (those are real Firestore writes from action handlers).
   const addToast = (msg, type="reveal") => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     setToasts(t => [...t, { id, msg, type }]);
     setTimeout(() => setToasts(t => t.filter(x=>x.id!==id)), 3200);
-    setNotifications(n => [{ id, type, text:msg, time:"now", read:false }, ...n]);
   };
 
-  const markAllRead = () => setNotifications(n => n.map(x=>({...x,read:true})));
+  const markAllRead = async () => {
+    if (!fbUser) return;
+    setNotifications(n => n.map(x=>({...x,read:true}))); // optimistic
+    try { await fbMarkAllNotificationsRead(fbUser.uid); } catch(e) {}
+  };
+
+  const markOneRead = async (id) => {
+    if (!fbUser) return;
+    setNotifications(n => n.map(x=> x.id===id ? {...x,read:true} : x));
+    try { await fbMarkNotificationRead(fbUser.uid, id); } catch(e) {}
+  };
 
   const handleNewPost = async (postData) => {
     const me = getMe();
@@ -5191,7 +5715,14 @@ export default function BKMApp() {
     if (!fbAuth.currentUser) return;
     try {
       await fbApprovePost(post.id, fbAuth.currentUser.uid);
-      // Live feed will update via subscription. No need to mutate local state.
+      // Notify the post author that their post is live
+      if (post.user?.id && post.user.id !== fbAuth.currentUser.uid) {
+        fbCreateNotification(post.user.id, {
+          type: "approve",
+          text: `Your post about ${post.place || "your deal"} is now live on the BKM feed`,
+          dealId: post.id,
+        });
+      }
       if (post.user?.id === getMe().id) addToast("Your post is live on the feed!", "approve");
     } catch (e) {
       addToast("Approve failed — try again", "approve");
@@ -5210,15 +5741,62 @@ export default function BKMApp() {
 
   const showTabs = screen==="feed";
 
+  // Filter out posts from blocked users
+  const visibleFeedDeals = feedDeals.filter(d => !userBlocks.has(d.user?.id));
+
+  // Action handlers exposed to Feed
+  const handleReportPost = async (deal, reason) => {
+    if (!fbAuth.currentUser) return;
+    try {
+      await fbSubmitReport({
+        reporterUid:      fbAuth.currentUser.uid,
+        reporterUsername: getMe().username,
+        dealId:           deal.id,
+        dealUserId:       deal.user?.id,
+        dealPlace:        deal.place,
+        reason,
+      });
+      sfx.success();
+      addToast("Report submitted. Thanks for keeping BKM honest.", "approve");
+    } catch (e) {
+      sfx.error();
+      addToast("Couldn't submit report — try again", "approve");
+    }
+  };
+
+  const handleBlockUser = async (user) => {
+    if (!fbAuth.currentUser || !user?.id) return;
+    if (!confirm(`Block @${user.username}? You won't see their posts anymore.`)) return;
+    try {
+      await fbBlockUser(fbAuth.currentUser.uid, user.id);
+      sfx.voteDown();
+      addToast(`@${user.username} blocked`, "approve");
+    } catch (e) {
+      sfx.error();
+    }
+  };
+
+  const handleDeleteOwnPost = async (dealId) => {
+    if (!fbAuth.currentUser) return;
+    try {
+      await fbDeleteDeal(dealId);
+      sfx.voteDown();
+      addToast("Post deleted", "approve");
+    } catch (e) {
+      sfx.error();
+      addToast("Couldn't delete — try again", "approve");
+    }
+  };
+
   const renderTab = () => {
     if (pushedScreen?.type==="location")      return <LocationPage district={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>push("user",u)}/>;
     if (pushedScreen?.type==="user")          return <Profile user={pushedScreen.data} theme={theme} lang={lang} onBack={pop} showBack/>;
     if (pushedScreen?.type==="post")          return <PostDetail deal={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}/>;
-    if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead}/>;
+    if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead} onMarkOne={markOneRead}/>;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }}/>;
-    if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost}/>;
+    if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
     if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
@@ -5241,15 +5819,62 @@ export default function BKMApp() {
       el.setAttribute("content", m.content);
     });
     document.title = "BKM — بكم";
-    // Match body, html, and root background to current theme so safe-area insets blend in
     document.documentElement.style.background = c.bg;
     document.body.style.background = c.bg;
     const root = document.getElementById("root");
     if (root) root.style.background = c.bg;
   }, [c.bg]);
 
+  // Service worker update prompt — fires when a new build is deployed
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    let waitingSW = null;
+    const handleUpdate = (registration) => {
+      if (!registration) return;
+      // If a new SW is already waiting, prompt
+      if (registration.waiting) {
+        waitingSW = registration.waiting;
+        setUpdateAvailable(true);
+      }
+      // Listen for newly-installed workers
+      registration.addEventListener("updatefound", () => {
+        const installing = registration.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            waitingSW = installing;
+            setUpdateAvailable(true);
+          }
+        });
+      });
+    };
+    navigator.serviceWorker.getRegistration().then(handleUpdate).catch(()=>{});
+    // When the new SW takes over, reload once
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
+    // Save reference on window for the update button
+    window._bkmActivateUpdate = () => {
+      if (waitingSW) waitingSW.postMessage({ type: "SKIP_WAITING" });
+      else window.location.reload();
+    };
+  }, []);
+
   return (
     <div style={{ width:"100vw", height:"100dvh", background:c.bg, display:"flex", flexDirection:"column", fontFamily:"'DM Sans',sans-serif", overflow:"hidden", paddingTop:"env(safe-area-inset-top)", paddingBottom:"env(safe-area-inset-bottom)", paddingLeft:"env(safe-area-inset-left)", paddingRight:"env(safe-area-inset-right)" }}>
+      {updateAvailable && (
+        <div style={{ position:"fixed", top:"env(safe-area-inset-top)", left:0, right:0, zIndex:300, padding:"10px 14px", background:c.accent, color:"#FFFFFF", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, boxShadow:"0 4px 14px rgba(0,0,0,0.18)", animation:"slideDown 0.3s cubic-bezier(0.34,1.2,0.64,1) both" }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:13, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>New version available</div>
+            <div style={{ fontSize:11, opacity:0.85, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>Refresh to get the latest features</div>
+          </div>
+          <button onClick={()=>{ if (window._bkmActivateUpdate) window._bkmActivateUpdate(); }} style={{ background:"#FFFFFF", color:c.accent, border:"none", borderRadius:9, padding:"7px 14px", fontSize:12, fontWeight:800, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Update</button>
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Noto+Naskh Arabic:wght@400;500;600&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
@@ -5257,6 +5882,7 @@ export default function BKMApp() {
         input,select,textarea { outline:none; font-family:'DM Sans',sans-serif; }
         @keyframes fu { from{opacity:0;transform:translateY(13px)} to{opacity:1;transform:translateY(0)} }
         @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+        @keyframes slideDown { from{transform:translateY(-100%);opacity:0} to{transform:translateY(0);opacity:1} }
         @keyframes bkmSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
         @keyframes shakeX { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
         @keyframes priceReveal { 0%{opacity:0;transform:scale(0.92) translateY(6px)} 60%{transform:scale(1.03)} 100%{opacity:1;transform:scale(1) translateY(0)} }
