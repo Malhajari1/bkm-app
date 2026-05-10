@@ -359,7 +359,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.6.1 · communities";
+const APP_VERSION = "v0.6.2 · feed + ux fixes";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2277,16 +2277,35 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // ─────────────────────────────────────────────────────────────────────────────
 function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter }) {
   const interests = SESSION.interests || [];
-  const [deals, setDeals]           = useState(initialDeals||DEALS);
+  const [deals, setDeals]           = useState(initialDeals||[]);
   const [claimed, setClaimed]       = useState(new Set(SESSION.claimed));
   const [votes, setVotes]           = useState({});
   const [bookmarked, setBookmarked] = useState(new Set());
   const [activeCat, setActiveCat]   = useState("all");
-  const [locPerm, setLocPerm]       = useState(SESSION.locPerm);
-  const [hasLoc, setHasLoc]         = useState(SESSION.hasLoc);
+  // Default location to "Doha, Qatar" so we never block the feed with a permission modal.
+  // User can tap the location chip in the header to switch districts manually.
+  const [locPerm, setLocPerm]       = useState(SESSION.locPerm === "granted" ? "granted" : "granted");
+  const [hasLoc, setHasLoc]         = useState(SESSION.hasLoc || "Doha, Qatar");
   const [locLoading, setLocLoading] = useState(false);
   const [energy, setEnergy]         = useState(calculateCurrentEnergy());
+  // Tutorial: show once. Mark seen IMMEDIATELY on mount in Firestore so even a force-close doesn't re-show it.
   const [showTutorial, setShowTutorial] = useState(!SESSION.tutorialSeen);
+  useEffect(() => {
+    if (showTutorial && fbAuth.currentUser) {
+      SESSION.tutorialSeen = true;
+      fbUpdateUserDoc(fbAuth.currentUser.uid, { tutorialSeen: true }).catch(()=>{});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Persist the default Doha location once so the user doc reflects it
+  useEffect(() => {
+    if (fbAuth.currentUser && !SESSION.hasLoc) {
+      SESSION.hasLoc = "Doha, Qatar";
+      SESSION.locPerm = "granted";
+      fbUpdateUserDoc(fbAuth.currentUser.uid, { hasLoc:"Doha, Qatar", locPerm:"granted" }).catch(()=>{});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [feedFilter, setFeedFilter] = useState(SESSION.feedFilter||"foryou");
   const [pullDist, setPullDist]     = useState(0);
@@ -2296,7 +2315,8 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const scrollRef                   = useRef(null);
   const limitReached = energy <= 0;
 
-  useEffect(()=>{ if(initialDeals) setDeals(initialDeals); },[initialDeals]);
+  // Always mirror prop → local state so Firestore-driven feed updates flow through
+  useEffect(()=>{ setDeals(initialDeals || []); },[initialDeals]);
   const [showAreas, setShowAreas] = useState(false);
   const [on, setOn]               = useState(false);
   const hint                      = useTyping(HINTS);
