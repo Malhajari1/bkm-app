@@ -358,6 +358,9 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // SESSION + THEME
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
+const APP_VERSION = "v0.6.1 · communities";
+
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -1151,6 +1154,9 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
             </div>
           )}
           {devError && <div style={{ fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", marginTop:6 }}>Wrong code</div>}
+        </div>
+        <div style={{ ...a(0.42), textAlign:"center", marginTop:14, opacity:0.5 }}>
+          <span style={{ fontSize:10, color:c.sub, letterSpacing:"0.06em", fontFamily:"'DM Sans',sans-serif" }}>{APP_VERSION}</span>
         </div>
       </div>
     </div>
@@ -3942,7 +3948,7 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
                         <span style={{ fontSize:9, fontWeight:700, color:p.color, fontFamily:"'DM Sans',sans-serif" }}>{p.label}</span>
                       </div>
                     </div>
-                    <div style={{ fontSize:12, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.4, marginBottom:6 }}>{post.subject.slice(0,80)}...</div>
+                    <div style={{ fontSize:12, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.4, marginBottom:6 }}>{(post.subject || "").slice(0,80)}{post.subject && post.subject.length > 80 ? "..." : ""}</div>
                     <div style={{ display:"flex", gap:6 }}>
                       <button onClick={e=>{e.stopPropagation();reject(post);}} style={{ flex:1, padding:"7px 0", background:"transparent", border:`1px solid ${c.border}`, borderRadius:8, fontSize:11, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Reject</button>
                       <button onClick={e=>{e.stopPropagation();approve(post);}} style={{ flex:2, padding:"7px 0", background:"#16A34A18", border:`1px solid #16A34A44`, borderRadius:8, fontSize:11, fontWeight:700, color:"#16A34A", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Approve</button>
@@ -3951,23 +3957,6 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
                 </button>
               );
             })}
-          </div>
-        )}
-
-        {/* Approved log */}
-        {approved.length > 0 && (
-          <div style={{ padding:"16px 20px 0", ...a(0.14) }}>
-            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Approved</div>
-            {approved.map((post,i)=>(
-              <div key={post.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${c.border}` }}>
-                <div style={{ width:8, height:8, borderRadius:"50%", background:"#16A34A", flexShrink:0 }}/>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{post.place}</div>
-                  <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>by {post.user.username}</div>
-                </div>
-                <span style={{ fontSize:10, color:"#16A34A", fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>Live</span>
-              </div>
-            ))}
           </div>
         )}
       </div>
