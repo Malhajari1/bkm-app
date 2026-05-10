@@ -111,6 +111,7 @@ const fbCreateUserDoc = async (uid, data = {}) => {
     uid,
     createdAt:           serverTimestamp(),
     username:            "",
+    usernameLower:       "",
     phone:               "",
     avatar:              "a1",
     rank:                0,
@@ -147,11 +148,20 @@ const fbUpdateUserDoc = (uid, patch) => updateDoc(doc(fbDb, "users", uid), patch
 const fbSubscribeUser = (uid, cb)    => onSnapshot(doc(fbDb, "users", uid), s => cb(s.exists() ? s.data() : null));
 
 // === Username uniqueness ===
-const fbCheckUsernameAvailable = async (username) => {
+// Queries the indexed `usernameLower` field on /users. Anyone whose username matches (case-insensitive) blocks the signup.
+const fbCheckUsernameAvailable = async (username, excludeUid = null) => {
   const { getDocs } = await import("firebase/firestore");
-  const q = query(collection(fbDb, "users"), where("username", "==", username.toLowerCase()), limit(1));
+  const norm = (username || "").toLowerCase().trim();
+  if (!norm) return false;
+  // Reserved/seed names always taken (admin/staff/etc, plus mock users that aren't real Firebase accounts)
+  const RESERVED = ["swiss","admin","bkm","founder","official","moderator","support","help","doha","qatar","merchant","merchants","partner","partners","staff","team","dealhunterq","pearlfinds","dohadeals_","lusaillooks"];
+  if (RESERVED.includes(norm)) return false;
+  const q = query(collection(fbDb, "users"), where("usernameLower", "==", norm), limit(2));
   const r = await getDocs(q);
-  return r.empty;
+  if (r.empty) return true;
+  // If the only match is the current user's own doc (re-saving), still available
+  if (excludeUid && r.docs.every(d => d.id === excludeUid)) return true;
+  return false;
 };
 
 // === Deals (posts) ===
@@ -493,7 +503,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.7.1 · moderation pass";
+const APP_VERSION = "v0.7.3 · signout + admin delete";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2225,7 +2235,7 @@ const PLATFORM_META = {
   store:   { color:"#B8860B", label:"In Store" },
 };
 
-function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, onShareBonus, onPostBetter, onReportPost, onBlockUser, onDeleteOwnPost }) {
+function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, isAdmin=false, onShareBonus, onPostBetter, onReportPost, onBlockUser, onDeleteOwnPost }) {
   const [priceAnim, setPriceAnim]   = useState(false);
   const [upAnim, setUpAnim]         = useState(false);
   const [downAnim, setDownAnim]     = useState(false);
@@ -2442,14 +2452,14 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 <div style={{ display:"flex", justifyContent:"center", marginBottom:16 }}>
                   <div style={{ width:36, height:4, borderRadius:2, background:c.muted }}/>
                 </div>
-                {isOwn && (
+                {(isOwn || isAdmin) && (
                   <button onClick={()=>{ setShowMoreMenu(false); setShowDeleteConfirm(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
                     <div style={{ width:36, height:36, borderRadius:10, background:"#DC262615", display:"flex", alignItems:"center", justifyContent:"center" }}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 01-2 2H9a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                     </div>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontSize:14, fontWeight:700, color:"#DC2626", fontFamily:"'DM Sans',sans-serif" }}>Delete this post</div>
-                      <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Permanently remove from the feed</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:"#DC2626", fontFamily:"'DM Sans',sans-serif" }}>{isOwn ? "Delete this post" : "Delete (admin)"}</div>
+                      <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{isOwn ? "Permanently remove from the feed" : `Remove @${deal.user.username}'s post from the feed`}</div>
                     </div>
                   </button>
                 )}
@@ -2585,7 +2595,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // ─────────────────────────────────────────────────────────────────────────────
 // FEED
 // ─────────────────────────────────────────────────────────────────────────────
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||[]);
   // These now come from Firestore subscriptions in App.jsx, passed via props.
@@ -3080,6 +3090,7 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
               onOpenPost={onOpenPost}
               limitReached={limitReached}
               isOwn={fbAuth.currentUser ? deal.user.id === fbAuth.currentUser.uid : false}
+              isAdmin={isAdmin}
               onShareBonus={(amt)=>{ setEnergy(SESSION.revealEnergy); sfx.earn(); showBonus(amt, "Thanks for sharing!"); }}
               onPostBetter={onPostBetter}
               onReportPost={onReportPost}
@@ -3341,6 +3352,12 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
               <button onClick={onSettings} style={{ width:38, height:38, borderRadius:11, background:c.surface, border:`1px solid ${c.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </button>
+              {/* Sign out — only on own profile */}
+              {isOwn && (
+                <button onClick={()=>{ if (confirm("Sign out of BKM?")) onSignOut && onSignOut(); }} title="Sign out" style={{ width:38, height:38, borderRadius:11, background:c.surface, border:`1px solid #EF444444`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -4202,7 +4219,7 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // DEV — POST REVIEW QUEUE
 // ─────────────────────────────────────────────────────────────────────────────
-function DevReview({ theme, pendingPosts, onApprove, onReject }) {
+function DevReview({ theme, pendingPosts, onApprove, onReject, onSignOut }) {
   const queue = pendingPosts || [];
   const [section, setSection]         = useState("posts"); // "posts" | "reports"
   const [selected, setSelected]       = useState(null);
@@ -4350,12 +4367,17 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
       <div style={{ flex:1, overflowY:"auto", padding:"10px 0 24px" }}>
 
         {/* Header */}
-        <div style={{ padding:"4px 20px 14px", ...a(0.04) }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D6FEB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            <span style={{ fontSize:16, fontWeight:700, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif" }}>BKM Dev Console</span>
+        <div style={{ padding:"4px 20px 14px", display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, ...a(0.04) }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D6FEB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <span style={{ fontSize:16, fontWeight:700, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif" }}>BKM Dev Console</span>
+            </div>
+            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Moderation tools</div>
           </div>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Moderation tools</div>
+          <button onClick={()=>{ if (confirm("Sign out of admin?")) onSignOut && onSignOut(); }} title="Sign out" style={{ width:38, height:38, borderRadius:11, background:c.surface, border:`1px solid #EF444444`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
         </div>
 
         {/* Section toggle */}
@@ -4548,7 +4570,9 @@ function ProfileSetup({ theme, lang, onComplete }) {
   const [checking, setChecking] = useState(false);
   const [taken, setTaken]       = useState(false);
   const [error, setError]       = useState("");
+  const [busy, setBusy]         = useState(false);
   const [on, setOn]             = useState(false);
+  const checkSeqRef             = useRef(0);
   const c = TH[theme];
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
@@ -4560,20 +4584,47 @@ function ProfileSetup({ theme, lang, onComplete }) {
     if (!val) return;
     const err = isValidUsername(val);
     if (err) { setError(err); return; }
-    // Simulate availability check
+    // Real Firestore availability check, debounced ~400ms, race-safe via a sequence counter
     setChecking(true);
-    setTimeout(()=>{
-      const isTaken = TAKEN_USERNAMES.includes(val.toLowerCase());
-      setChecking(false);
-      setTaken(isTaken);
-      if (isTaken) setError("Username is already taken");
-    }, 600);
+    const mySeq = ++checkSeqRef.current;
+    setTimeout(async () => {
+      if (mySeq !== checkSeqRef.current) return; // newer keystroke superseded this check
+      try {
+        const me = fbAuth.currentUser;
+        const available = await fbCheckUsernameAvailable(val, me?.uid || null);
+        if (mySeq !== checkSeqRef.current) return; // result arrived after newer keystroke
+        setChecking(false);
+        setTaken(!available);
+        if (!available) setError("Username is already taken");
+      } catch (e) {
+        if (mySeq !== checkSeqRef.current) return;
+        setChecking(false);
+        setError("Couldn't verify — check your connection");
+      }
+    }, 400);
   };
 
-  const ready = username && !error && !taken && !checking;
+  const ready = username && !error && !taken && !checking && !busy;
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     if (!ready) return;
+    setBusy(true);
+    // Re-verify at submission time to close the race where two people race the same name
+    try {
+      const me = fbAuth.currentUser;
+      const stillAvailable = await fbCheckUsernameAvailable(username, me?.uid || null);
+      if (!stillAvailable) {
+        setBusy(false);
+        setTaken(true);
+        setError("Username is already taken — pick another");
+        sfx.error();
+        return;
+      }
+    } catch (e) {
+      setBusy(false);
+      setError("Couldn't verify — check your connection");
+      return;
+    }
     SESSION.username = username;
     SESSION.avatar   = avatar;
     SESSION.profileSetup = true;
@@ -5500,6 +5551,13 @@ export default function BKMApp() {
       }
       if (!userDoc) userDoc = {};
 
+      // Backfill usernameLower for legacy accounts created before the case-insensitive uniqueness fix
+      if (userDoc.username && !userDoc.usernameLower) {
+        const lower = userDoc.username.toLowerCase();
+        fbUpdateUserDoc(user.uid, { usernameLower: lower }).catch(()=>{});
+        userDoc.usernameLower = lower;
+      }
+
       // Mirror to SESSION + CURRENT_USER cache
       SESSION.loggedIn         = true;
       SESSION.isAdmin          = !!userDoc.isAdmin;
@@ -5795,12 +5853,12 @@ export default function BKMApp() {
     if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead} onMarkOne={markOneRead}/>;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
     if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
-    if (tab==="dev")     return <ErrorBoundary><DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject}/></ErrorBoundary>;
+    if (tab==="dev")     return <ErrorBoundary><DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject} onSignOut={signOut}/></ErrorBoundary>;
   };
 
   // Inject PWA meta tags + force body bg to match theme so safe-area isn't black
@@ -5996,7 +6054,7 @@ export default function BKMApp() {
             SESSION.username=data.username;
             SESSION.avatar=data.avatar;
             CURRENT_USER = { id: fbAuth.currentUser?.uid || 0, uid: fbAuth.currentUser?.uid, username:data.username, name:null, av:data.avatar, rank:0, founder:!!SESSION.isFounder, caption:"", deals:0, followers:0 };
-            if (fbAuth.currentUser) await fbUpdateUserDoc(fbAuth.currentUser.uid, { username:data.username.toLowerCase(), avatar:data.avatar, profileSetup:true }).catch(()=>{});
+            if (fbAuth.currentUser) await fbUpdateUserDoc(fbAuth.currentUser.uid, { username:data.username, usernameLower:data.username.toLowerCase(), avatar:data.avatar, profileSetup:true }).catch(()=>{});
             go("onboarding");
           }}/>}
           {screen==="onboarding"    && <Onboarding theme={theme} onComplete={async (interests)=>{
