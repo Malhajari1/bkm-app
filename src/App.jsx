@@ -43,12 +43,14 @@ if (typeof window !== "undefined") {
 // Phone-as-identity helpers (workaround for not having phone OTP on Spark plan)
 const normalizePhone = (raw) => {
   let p = (raw||"").replace(/[^\d+]/g, "");
-  if (!p.startsWith("+")) {
-    if (p.startsWith("00")) p = "+" + p.slice(2);
-    else if (p.length >= 8) p = "+974" + p; // default to Qatar
-    else p = "+" + p;
-  }
-  return p;
+  if (p.startsWith("+")) return p;
+  if (p.startsWith("00")) return "+" + p.slice(2);
+  if (p.startsWith("0")) p = p.slice(1); // strip leading zero
+  // If already includes Qatar country code (974), don't re-add it
+  if (p.startsWith("974") && p.length >= 11) return "+" + p;
+  // Default to Qatar
+  if (p.length >= 7) return "+974" + p;
+  return "+" + p;
 };
 const phoneToEmail    = (phone) => `${normalizePhone(phone).replace("+","p")}@bkm.qa`;
 const phoneToPassword = (phone) => `BKM-${normalizePhone(phone)}-prototype-key-2025`;
@@ -175,12 +177,30 @@ const fbSubmitPost = async (postData, user) => {
 const fbApprovePost = (dealId, adminUid) => updateDoc(doc(fbDb, "deals", dealId), { status:"approved", verified:true, approvedBy:adminUid, approvedAt:serverTimestamp() });
 const fbRejectPost  = (dealId, adminUid) => updateDoc(doc(fbDb, "deals", dealId), { status:"rejected", rejectedBy:adminUid, rejectedAt:serverTimestamp() });
 
-const fbSubscribeApprovedDeals = (cb) => onSnapshot(query(collection(fbDb, "deals"), where("status","==","approved"), orderBy("approvedAt","desc"), limit(80)), snap => {
-  cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-});
-const fbSubscribePendingDeals = (cb) => onSnapshot(query(collection(fbDb, "deals"), where("status","==","pending"), orderBy("createdAt","desc"), limit(80)), snap => {
-  cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-});
+const fbSubscribeApprovedDeals = (cb) => onSnapshot(query(collection(fbDb, "deals"), where("status","==","approved"), limit(80)),
+  snap => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a,b) => {
+      const ta = a.approvedAt?.toMillis?.() || 0;
+      const tb = b.approvedAt?.toMillis?.() || 0;
+      return tb - ta;
+    });
+    cb(list);
+  },
+  err => { console.error("[BKM] feed subscription error:", err); cb([]); }
+);
+const fbSubscribePendingDeals = (cb) => onSnapshot(query(collection(fbDb, "deals"), where("status","==","pending"), limit(80)),
+  snap => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a,b) => {
+      const ta = a.createdAt?.toMillis?.() || 0;
+      const tb = b.createdAt?.toMillis?.() || 0;
+      return tb - ta;
+    });
+    cb(list);
+  },
+  err => { console.error("[BKM] pending subscription error:", err); cb([]); }
+);
 
 // === Reveal / vote / bookmark / follow ===
 const fbRecordReveal = async (uid, dealId) => {
@@ -3671,26 +3691,39 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function DevReview({ theme, pendingPosts, onApprove, onReject }) {
   const queue = pendingPosts || [];
-  const [approved, setApproved] = useState([]);
-  const [rejected, setRejected] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [on, setOn]             = useState(false);
+  const [selected, setSelected]       = useState(null);
+  const [busyId, setBusyId]           = useState(null); // disable while in-flight
+  const [approvedCount, setApprovedCount] = useState(0);
+  const [rejectedCount, setRejectedCount] = useState(0);
+  const [on, setOn]                   = useState(false);
   const c = TH[theme];
 
   useEffect(()=>{ setTimeout(()=>setOn(true),60); },[]);
 
   const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
 
-  const approve = (post) => {
-    setApproved(a=>[post,...a]);
+  const approve = async (post) => {
+    if (busyId) return;
+    setBusyId(post.id);
     setSelected(null);
-    onApprove && onApprove(post);
+    try {
+      await (onApprove ? onApprove(post) : Promise.resolve());
+      setApprovedCount(v => v + 1);
+    } finally {
+      setBusyId(null);
+    }
   };
 
-  const reject = (post) => {
-    setRejected(r=>[post,...r]);
+  const reject = async (post) => {
+    if (busyId) return;
+    setBusyId(post.id);
     setSelected(null);
-    onReject && onReject(post);
+    try {
+      await (onReject ? onReject(post) : Promise.resolve());
+      setRejectedCount(v => v + 1);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const PM = (key) => {
@@ -3792,7 +3825,7 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
 
         {/* Stats row */}
         <div style={{ padding:"0 20px 16px", display:"flex", gap:10, ...a(0.07) }}>
-          {[{label:"Pending",val:queue.length,col:"#F59E0B"},{label:"Approved",val:approved.length,col:"#16A34A"},{label:"Rejected",val:rejected.length,col:"#EF4444"}].map(s=>(
+          {[{label:"Pending",val:queue.length,col:"#F59E0B"},{label:"Approved",val:approvedCount,col:"#16A34A"},{label:"Rejected",val:rejectedCount,col:"#EF4444"}].map(s=>(
             <div key={s.label} style={{ flex:1, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, padding:"12px 0", textAlign:"center" }}>
               <div style={{ fontSize:22, fontWeight:800, color:s.col, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
               <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
