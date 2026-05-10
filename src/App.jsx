@@ -503,7 +503,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.7.3 · signout + admin delete";
+const APP_VERSION = "v0.7.4 · setup escape hatch";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -4509,13 +4509,22 @@ function BetaConsent({ theme, onAccept }) {
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", padding:"0 0 0 0" }}>
       {/* Header */}
-      <div style={{ padding:"20px 24px 16px", flexShrink:0, borderBottom:`1px solid ${c.border}` }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-          <TagMark size={22} fill={c.accent} holeBg={c.bg}/>
-          <span style={{ fontSize:18, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>BKM Beta</span>
-          <span style={{ fontSize:10, fontWeight:700, color:"#F59E0B", background:"#F59E0B18", border:"1px solid #F59E0B44", borderRadius:6, padding:"2px 7px", fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
+      <div style={{ padding:"20px 24px 16px", flexShrink:0, borderBottom:`1px solid ${c.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+            <TagMark size={22} fill={c.accent} holeBg={c.bg}/>
+            <span style={{ fontSize:18, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>BKM Beta</span>
+            <span style={{ fontSize:10, fontWeight:700, color:"#F59E0B", background:"#F59E0B18", border:"1px solid #F59E0B44", borderRadius:6, padding:"2px 7px", fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
+          </div>
+          <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>Please read and accept our terms before joining. Scroll to the bottom to continue.</div>
         </div>
-        <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>Please read and accept our terms before joining. Scroll to the bottom to continue.</div>
+        <button onClick={async ()=>{
+          if (!confirm("Sign out and use a different account?")) return;
+          try { await fbDoSignOut(); } catch(e) {}
+          window.location.reload();
+        }} title="Sign out" style={{ width:34, height:34, borderRadius:10, background:c.surface, border:`1px solid #EF444444`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
       </div>
 
       {/* Scrollable content */}
@@ -4635,9 +4644,28 @@ function ProfileSetup({ theme, lang, onComplete }) {
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ flex:1, overflowY:"auto", padding:"24px 24px 32px" }}>
 
-        <div style={{ ...a(0.04), marginBottom:24, textAlign:"center" }}>
+        <div style={{ ...a(0.04), marginBottom:18, textAlign:"center" }}>
           <div style={{ fontSize:22, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em", marginBottom:8 }}>Set up your profile</div>
           <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>This is how the community will know you</div>
+          {fbAuth.currentUser?.email && (
+            <div style={{ marginTop:14, padding:"10px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, display:"inline-flex", alignItems:"center", gap:8, maxWidth:"100%" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                Signed in as <span style={{ color:c.text, fontWeight:600 }}>{
+                  fbAuth.currentUser.email.startsWith("p+") ? `+${fbAuth.currentUser.email.slice(2).split("@")[0]}` : fbAuth.currentUser.email
+                }</span>
+              </span>
+            </div>
+          )}
+          <div style={{ marginTop:8 }}>
+            <button onClick={async ()=>{
+              if (!confirm("Sign out and use a different account?")) return;
+              try { await fbDoSignOut(); } catch(e) {}
+              window.location.reload();
+            }} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:"#EF4444", fontFamily:"'DM Sans',sans-serif", textDecoration:"underline", padding:"6px 4px" }}>
+              Not you? Sign out
+            </button>
+          </div>
         </div>
 
         {/* Avatar picker — colored initials, no duplicates, perfect circles */}
