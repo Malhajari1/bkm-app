@@ -2422,17 +2422,20 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
       setLocLoading(false);
       SESSION.locPerm = "granted";
       SESSION.hasLoc = loc;
+      if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { locPerm:"granted", hasLoc: loc }).catch(()=>{});
     }, 900);
   };
 
   const handleDeny = () => {
     setLocPerm("denied");
     SESSION.locPerm = "denied";
+    if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { locPerm:"denied" }).catch(()=>{});
   };
 
   const dismissTutorial = () => {
     SESSION.tutorialSeen = true;
     setShowTutorial(false);
+    if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { tutorialSeen: true }).catch(()=>{});
   };
 
   return (
@@ -3809,6 +3812,7 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
   // Detail view
   if (selected) {
     const p = PM(selected.platform);
+    const safeUser = selected.user || { id:"_", username:"User", av:"a1", founder:false, rank:0 };
     return (
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
         <div style={{ flex:1, overflowY:"auto", padding:"10px 0 24px" }}>
@@ -3818,14 +3822,14 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
           </div>
 
           <div style={{ padding:"0 20px" }}>
-            <img src={selected.img} alt="" style={{ width:"100%", height:150, objectFit:"cover", borderRadius:14, marginBottom:14 }} onError={e=>e.target.style.display="none"}/>
+            {selected.img ? <img src={selected.img} alt="" style={{ width:"100%", height:150, objectFit:"cover", borderRadius:14, marginBottom:14 }} onError={e=>e.target.style.display="none"}/> : null}
 
             {/* User */}
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-              <Avatar user={selected.user} size={32}/>
+              <Avatar user={safeUser} size={32}/>
               <div>
-                <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{selected.user.username}</div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Submitted {selected.submitted}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{safeUser.username || "User"}</div>
+                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Submitted {selected.submitted || "Just now"}</div>
               </div>
             </div>
 
@@ -3854,12 +3858,15 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
             {/* Items */}
             <div style={{ background:c.muted, borderRadius:12, padding:"12px 14px", marginBottom:20 }}>
               <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8, fontFamily:"'DM Sans',sans-serif" }}>Submitted Prices</div>
-              {selected.items.map((item,i)=>(
+              {(selected.items || []).map((item,i)=>(
                 <div key={i} style={{ display:"flex", justifyContent:"space-between", paddingTop:i>0?8:0, marginTop:i>0?8:0, borderTop:i>0?`1px solid ${c.border}`:"none" }}>
-                  <span style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.n}</span>
-                  <span style={{ fontSize:14, fontWeight:700, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>QAR {Number(item.p).toFixed(2)}</span>
+                  <span style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.n || item.name || ""}</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>QAR {Number(item.p ?? item.price ?? 0).toFixed(2)}</span>
                 </div>
               ))}
+              {(!selected.items || selected.items.length === 0) && (
+                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", textAlign:"center", padding:"6px 0" }}>No items submitted</div>
+              )}
             </div>
 
             {/* Checklist */}
@@ -5005,6 +5012,8 @@ export default function BKMApp() {
       SESSION.avatar           = userDoc.avatar || "a1";
       SESSION.interests        = userDoc.interests || [];
       SESSION.tutorialSeen     = !!userDoc.tutorialSeen;
+      SESSION.locPerm          = userDoc.locPerm || "pending";
+      SESSION.hasLoc           = userDoc.hasLoc || "";
       SESSION.revealEnergy     = userDoc.revealEnergy ?? MAX_ENERGY;
       SESSION.lastEnergyUpdate = userDoc.lastEnergyUpdate || Date.now();
       SESSION.sharesUsedToday  = userDoc.sharesUsedToday || 0;
