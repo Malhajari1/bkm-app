@@ -268,9 +268,115 @@ const fbSubmitPartnerRequest = async (data) => {
   return ref.id;
 };
 
+// === Communities ===
+const fbCreateCommunity = async (data, ownerUid, ownerUsername, ownerAvatar) => {
+  const ref = await addDoc(collection(fbDb, "communities"), {
+    name:         data.name,
+    nameLower:    data.name.toLowerCase(),
+    description:  data.description || "",
+    rules:        data.rules || "",
+    bannerColor:  data.bannerColor || "#8B0038",
+    category:     data.category || "general",
+    type:         data.type || "public", // public | private
+    ownerUid,
+    ownerUsername,
+    ownerAvatar,
+    memberCount:  1,
+    postCount:    0,
+    verified:     false,
+    createdAt:    serverTimestamp(),
+  });
+  // Auto-join the owner
+  await setDoc(doc(fbDb, "communities", ref.id, "members", ownerUid), {
+    uid: ownerUid,
+    role: "owner",
+    joinedAt: serverTimestamp(),
+    banned: false,
+  });
+  // Mirror to user's communities list
+  await setDoc(doc(fbDb, "users", ownerUid, "communities", ref.id), {
+    communityId: ref.id,
+    role: "owner",
+    joinedAt: serverTimestamp(),
+  });
+  return ref.id;
+};
+
+const fbSubscribeCommunities = (cb) => onSnapshot(query(collection(fbDb, "communities"), limit(60)),
+  snap => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a,b) => (b.memberCount||0) - (a.memberCount||0));
+    cb(list);
+  },
+  err => { console.error("[BKM] communities subscription error:", err); cb([]); }
+);
+
+const fbGetCommunity      = async (cid) => { const s = await getDoc(doc(fbDb, "communities", cid)); return s.exists() ? { id: s.id, ...s.data() } : null; };
+const fbSubscribeCommunity = (cid, cb) => onSnapshot(doc(fbDb, "communities", cid), s => cb(s.exists() ? { id: s.id, ...s.data() } : null));
+
+const fbCheckCommunityNameAvailable = async (name) => {
+  const { getDocs } = await import("firebase/firestore");
+  const q = query(collection(fbDb, "communities"), where("nameLower", "==", name.toLowerCase()), limit(1));
+  const r = await getDocs(q);
+  return r.empty;
+};
+
+const fbJoinCommunity = async (cid, uid) => {
+  const memberRef = doc(fbDb, "communities", cid, "members", uid);
+  const existing  = await getDoc(memberRef);
+  if (existing.exists() && !existing.data().banned) return false; // already a member
+  if (existing.exists() && existing.data().banned)  throw new Error("You are banned from this community.");
+  await setDoc(memberRef, { uid, role: "member", joinedAt: serverTimestamp(), banned: false });
+  await setDoc(doc(fbDb, "users", uid, "communities", cid), { communityId: cid, role: "member", joinedAt: serverTimestamp() });
+  await updateDoc(doc(fbDb, "communities", cid), { memberCount: increment(1) });
+  return true;
+};
+
+const fbLeaveCommunity = async (cid, uid) => {
+  const memberRef = doc(fbDb, "communities", cid, "members", uid);
+  const existing  = await getDoc(memberRef);
+  if (!existing.exists()) return false;
+  // Don't allow owners to leave (they must transfer or delete)
+  if (existing.data().role === "owner") throw new Error("Owners cannot leave their community.");
+  await deleteDoc(memberRef);
+  await deleteDoc(doc(fbDb, "users", uid, "communities", cid));
+  await updateDoc(doc(fbDb, "communities", cid), { memberCount: increment(-1) });
+  return true;
+};
+
+const fbSubscribeUserCommunities = (uid, cb) => onSnapshot(collection(fbDb, "users", uid, "communities"),
+  s => cb(new Map(s.docs.map(d => [d.id, d.data()]))),
+  err => { console.error("[BKM] user-communities subscription error:", err); cb(new Map()); }
+);
+
+const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "communities", cid, "members"),
+  s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+  err => { console.error("[BKM] community-members subscription error:", err); cb([]); }
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SESSION + THEME
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Simple error boundary so a render crash doesn't leave a blank screen
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("[BKM] render error:", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding:"40px 24px", textAlign:"center", fontFamily:"'DM Sans',sans-serif", color:"#1C1208", background:"#F0E0C0", minHeight:"100vh" }}>
+          <div style={{ fontSize:22, fontWeight:800, marginBottom:12 }}>Something went wrong</div>
+          <div style={{ fontSize:13, color:"#6B5B4A", marginBottom:20, lineHeight:1.5 }}>The screen crashed. Tap below to recover.</div>
+          <button onClick={()=>{ this.setState({ error: null }); }} style={{ padding:"12px 24px", background:"#8B0038", border:"none", borderRadius:12, color:"#FFFFFF", fontWeight:700, fontSize:14, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Try again</button>
+          <div style={{ marginTop:16 }}><button onClick={()=>{ try{ fbDoSignOut(); }catch(e){} window.location.reload(); }} style={{ padding:"10px 20px", background:"transparent", border:"1px solid #C9892A", borderRadius:12, color:"#8B0038", fontWeight:600, fontSize:12, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Reload app</button></div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 const MAX_ENERGY      = 10;
 const REFILL_INTERVAL = 2 * 60 * 60 * 1000; // 1 reveal every 2 hours
 const SHARE_BONUS_CAP = 3;                  // Max +3/day from sharing
@@ -3075,91 +3181,71 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
   const c = TH[theme];
 
   const getResults = (q) => {
-    const query = q.toLowerCase().trim();
-    if (!query) return [];
-    const words = query.split(/\s+/).filter(w=>w.length>0);
+    const queryLow = q.toLowerCase().trim();
+    if (!queryLow) return [];
+    // Filter out tokens that are pure size/unit suffixes (x12, 5kg, 1l, 500mg, etc) and short tokens
+    const STOP = /^(x?\d+(kg|g|ml|l|mg|oz|lb|pc|pcs)?|the|and|of|with|or)$/i;
+    const allWords = queryLow.split(/\s+/).filter(w=>w.length>0);
+    const meaningfulWords = allWords.filter(w => w.length >= 3 && !STOP.test(w));
+    // If user typed only short/stop tokens, fall back to using all words
+    const words = meaningfulWords.length > 0 ? meaningfulWords : allWords;
 
-    // Build candidate result list from ALL live data sources:
-    // 1. Hardcoded SEARCH_RESULTS (curated demo data)
-    // 2. Live deals from feed (each item in each deal becomes a result)
-    // 3. Merchant listings posted via merchant portal
     const candidates = [];
-
-    // From hardcoded search results
-    Object.values(SEARCH_RESULTS).flat().forEach(r => candidates.push({
-      ...r,
-      _source: "search",
-    }));
-
-    // From live deal feed (items inside posts)
+    Object.values(SEARCH_RESULTS).flat().forEach(r => candidates.push({ ...r, _source: "search" }));
     DEALS.forEach(deal => {
       deal.items.forEach(item => candidates.push({
-        item: item.n,
-        vendor: deal.place,
-        platform: deal.platform,
-        district: deal.district,
-        price: item.p,
-        deliveryFee: 0,
+        item: item.n, vendor: deal.place, platform: deal.platform, district: deal.district,
+        price: item.p, deliveryFee: 0,
         rating: (deal.ups / Math.max(1, deal.ups+deal.downs)) * 5,
         verified: deal.verified !== false,
-        postedBy: deal.user.username,
-        rank: deal.user.rank,
-        img: deal.img,
-        _source: "feed",
-        _dealId: deal.id,
+        postedBy: deal.user.username, rank: deal.user.rank, img: deal.img,
+        cat: deal.cat, _source: "feed", _dealId: deal.id,
       }));
     });
-
-    // From merchant listings
     MERCHANT_LISTINGS.forEach(listing => candidates.push({
-      item: listing.name,
-      vendor: listing.merchant,
-      platform: "store",
-      district: "",
-      price: listing.price,
-      deliveryFee: 0,
-      rating: 5,
-      verified: true,
-      postedBy: listing.merchant,
-      rank: 4,
-      img: "",
+      item: listing.name, vendor: listing.merchant, platform: "store", district: "",
+      price: listing.price, deliveryFee: 0, rating: 5, verified: true,
+      postedBy: listing.merchant, rank: 4, img: "", cat: listing.cat || "stores",
       _source: "merchant",
     }));
 
-    // Score every candidate
+    // Score every candidate. CRITICAL: every word in the query must match somewhere.
     const scored = candidates.map(r => {
-      let score = 0;
       const itemName   = (r.item||"").toLowerCase();
       const vendorName = (r.vendor||"").toLowerCase();
       const platform   = (r.platform||"").toLowerCase();
       const postedBy   = (r.postedBy||"").toLowerCase();
+      const haystack   = `${itemName} ${vendorName} ${platform} ${postedBy}`;
+
+      // Require ALL meaningful words to appear somewhere
+      const allMatch = words.every(w => haystack.includes(w));
+      if (!allMatch) return { ...r, _score: 0 };
+
+      let score = 0;
+      // Bonus for exact phrase match
+      if (itemName === queryLow)            score += 200;
+      if (itemName.startsWith(queryLow))    score += 80;
+      if (itemName.includes(queryLow))      score += 50;
+      if (vendorName === queryLow)          score += 100;
 
       words.forEach(w => {
-        if (itemName === query)            score += 200;
-        if (itemName === w)                score += 100;
-        if (itemName.startsWith(w))        score += 60;
-        if (itemName.includes(w))          score += 40;
-        if (vendorName === query)          score += 100;
-        if (vendorName.startsWith(w))      score += 50;
-        if (vendorName.includes(w))        score += 30;
-        if (platform.includes(w))          score += 15;
-        if (postedBy === w)                score += 90;
-        if (postedBy.includes(w))          score += 50;
+        if (itemName === w)                 score += 100;
+        if (itemName.startsWith(w))         score += 60;
+        if (itemName.includes(w))           score += 40;
+        if (vendorName.startsWith(w))       score += 30;
+        if (vendorName.includes(w))         score += 20;
+        if (platform.includes(w))           score += 8;
+        if (postedBy === w)                 score += 50;
       });
-
-      // Merchant listings bonus — they pay to be on the platform
       if (r._source === "merchant") score += 5;
-
-      return { ...r, _score:score };
+      return { ...r, _score: score };
     });
 
-    // Deduplicate by item+vendor combo, keep highest scoring
     const seen = new Map();
     scored.forEach(r => {
       const key = `${r.item}__${r.vendor}`;
       if (!seen.has(key) || seen.get(key)._score < r._score) seen.set(key, r);
     });
-
     return Array.from(seen.values())
       .filter(r => r._score > 0 && r.verified !== false)
       .sort((a,b) => b._score - a._score || a.price - b.price)
@@ -3266,8 +3352,8 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
               <Ico.Back s={18} c={c.sub}/>
             </button>
           )}
-          <div style={{ flex:1, display:"flex", alignItems:"center", gap:9, background:c.surface, border:`1.5px solid ${focused||submitted?c.accent:c.border}`, borderRadius:14, padding:"11px 14px", transition:"border-color 0.2s" }}>
-            <Ico.Search s={14} c={focused||submitted?c.accent:c.sub}/>
+          <div style={{ flex:1, display:"flex", alignItems:"center", gap:9, background:c.surface, border:`1.5px solid ${focused||submitted?c.accent:c.border}`, borderRadius:14, padding:"12px 14px", transition:"border-color 0.2s" }}>
+            <Ico.Search s={16} c={focused||submitted?c.accent:c.sub}/>
             <input
               ref={inputRef}
               value={query}
@@ -3276,7 +3362,7 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
               onBlur={()=>setTimeout(()=>setFocused(false),200)}
               onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); doSearch(query); } }}
               placeholder={hint||"Search for the best price..."}
-              style={{ flex:1, background:"none", border:"none", fontSize:14, color:c.text, fontFamily:"'DM Sans',sans-serif" }}
+              style={{ flex:1, background:"none", border:"none", fontSize:16, color:c.text, fontFamily:"'DM Sans',sans-serif", outline:"none", minWidth:0 }}
             />
             {query && (
               <button onMouseDown={e=>{e.preventDefault();clear();}} style={{ background:"none", border:"none", cursor:"pointer", color:c.sub, fontSize:13, flexShrink:0 }}>✕</button>
@@ -3458,10 +3544,12 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
                         <div style={{ width:22, height:22, borderRadius:7, background:best?c.accent:c.pill, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                           <span style={{ fontSize:11, fontWeight:800, color:best?"#FFFFFF":c.sub, fontFamily:"'DM Sans',sans-serif" }}>{i+1}</span>
                         </div>
-                        <img src={r.img} alt="" style={{ width:44, height:44, borderRadius:10, objectFit:"cover", flexShrink:0 }} onError={e=>e.target.style.display="none"}/>
+                        <div style={{ width:46, height:46, borderRadius:11, background:best?`${c.accent}20`:c.muted, border:`1px solid ${best?c.accent+"40":c.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                          <CatIcon cat={r.cat || "stores"} color={best?c.accent:c.sub} size={22}/>
+                        </div>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.vendor}</div>
-                          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{r.item}</div>
+                          <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>{r.item}</div>
+                          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.vendor}</div>
                           <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:5 }}>
                             <div style={{ background:`${P.color}15`, border:`1px solid ${P.color}30`, borderRadius:6, padding:"2px 6px" }}>
                               <span style={{ fontSize:9, fontWeight:700, color:P.color, fontFamily:"'DM Sans',sans-serif" }}>{P.label}</span>
@@ -3556,19 +3644,6 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="" }) {
               </div>
             )}
 
-            {/* Community bridge */}
-            <div style={{ padding:"16px 16px 0" }}>
-              <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"13px 14px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:`${c.accent}15`, border:`1px solid ${c.accent}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                  <TagMark size={16} fill={c.accent} holeBg={c.surface}/>
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>See community posts</div>
-                  <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>Real takes from users who've been there</div>
-                </div>
-                <span style={{ fontSize:14, color:c.accent, fontWeight:700 }}>→</span>
-              </div>
-            </div>
             <div style={{ height:20 }}/>
           </div>
         )}
@@ -3843,17 +3918,18 @@ function DevReview({ theme, pendingPosts, onApprove, onReject }) {
           <div style={{ padding:"0 20px", display:"flex", flexDirection:"column", gap:10, ...a(0.1) }}>
             {queue.map((post,i)=>{
               const p = PM(post.platform);
+              const safeUser = post.user || { id:"_", username:"User", av:"a1", founder:false, rank:0 };
               return (
                 <button key={post.id} onClick={()=>setSelected(post)} style={{ background:post.founderPost?`#1D6FEB0A`:c.surface, border:`1px solid ${post.founderPost?"#1D6FEB44":c.border}`, borderRadius:16, overflow:"hidden", cursor:"pointer", textAlign:"left", transition:"border-color 0.15s", animation:`fu 0.35s ease ${i*0.07}s both` }}
                   onMouseOver={e=>e.currentTarget.style.borderColor=post.founderPost?"#1D6FEB88":"#1D6FEB55"}
                   onMouseOut={e=>e.currentTarget.style.borderColor=post.founderPost?"#1D6FEB44":c.border}
                 >
-                  <img src={post.img} alt="" style={{ width:"100%", height:80, objectFit:"cover", display:"block" }} onError={e=>e.target.style.display="none"}/>
+                  {post.img ? <img src={post.img} alt="" style={{ width:"100%", height:80, objectFit:"cover", display:"block" }} onError={e=>e.target.style.display="none"}/> : null}
                   <div style={{ padding:"10px 12px" }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
-                      <Avatar user={post.user} size={22}/>
-                      <span style={{ fontSize:12, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{post.user.username}</span>
-                      <TierBadge user={post.user} size="sm"/>
+                      <Avatar user={safeUser} size={22}/>
+                      <span style={{ fontSize:12, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{safeUser.username || "User"}</span>
+                      <TierBadge user={safeUser} size="sm"/>
                       <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginLeft:"auto" }}>{post.submitted}</span>
                       <div style={{ background:`${p.color}18`, border:`1px solid ${p.color}44`, borderRadius:6, padding:"2px 6px" }}>
                         <span style={{ fontSize:9, fontWeight:700, color:p.color, fontFamily:"'DM Sans',sans-serif" }}>{p.label}</span>
@@ -4322,6 +4398,551 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// COMMUNITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COMMUNITY_BANNERS = [
+  "#8B0038", "#1D6FEB", "#16A34A", "#C9892A", "#7C3AED",
+  "#0EA5E9", "#DC2626", "#0891B2", "#EA580C", "#1C1208",
+];
+const COMMUNITY_CATEGORIES = [
+  { key:"food",        label:"Food & Restaurants" },
+  { key:"groceries",   label:"Groceries" },
+  { key:"shopping",    label:"Shopping & Stores" },
+  { key:"electronics", label:"Electronics & Tech" },
+  { key:"flowers",     label:"Flowers & Gifts" },
+  { key:"pharmacies",  label:"Pharmacies" },
+  { key:"local",       label:"Local Tips" },
+  { key:"deals",       label:"Daily Deals" },
+  { key:"general",     label:"General" },
+];
+
+// Sub-card showing one community
+function CommunityCard({ community, theme, isMember, onTap }) {
+  const c = TH[theme];
+  return (
+    <button onClick={()=>onTap(community.id)} style={{
+      width:"100%", display:"flex", alignItems:"center", gap:12,
+      background:c.surface, border:`1px solid ${c.border}`, borderRadius:14,
+      padding:"12px 14px", cursor:"pointer", textAlign:"left",
+      transition:"border-color 0.15s",
+    }}
+      onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
+      onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
+    >
+      <div style={{ width:46, height:46, borderRadius:12, background:community.bannerColor||c.accent, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+        <span style={{ fontSize:20, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>
+          {(community.name||"?").charAt(0).toUpperCase()}
+        </span>
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+          <span style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{community.name}</span>
+          {community.verified && <span style={{ fontSize:9, fontWeight:800, color:c.accent, background:`${c.accent}15`, border:`1px solid ${c.accent}30`, borderRadius:5, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>VERIFIED</span>}
+          {isMember && <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", background:c.accent, borderRadius:5, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>JOINED</span>}
+        </div>
+        <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:3 }}>
+          {community.description || "No description"}
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>
+            {community.memberCount||0} member{community.memberCount===1?"":"s"}
+          </span>
+          <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+            · {community.postCount||0} posts
+          </span>
+        </div>
+      </div>
+      <span style={{ fontSize:14, color:c.sub, flexShrink:0 }}>›</span>
+    </button>
+  );
+}
+
+// Browse/main communities tab
+function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
+  const [communities, setCommunities] = useState([]);
+  const [myCommunities, setMyCommunities] = useState(new Map());
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all"); // all | mine | category-key
+  const [search, setSearch] = useState("");
+  const [on, setOn] = useState(false);
+  const c = TH[theme];
+
+  useEffect(()=>{ setTimeout(()=>setOn(true), 60); },[]);
+
+  // Subscribe to all communities
+  useEffect(() => {
+    setLoading(true);
+    const unsub = fbSubscribeCommunities((list) => {
+      setCommunities(list);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  // Subscribe to user's own communities
+  useEffect(() => {
+    if (!fbAuth.currentUser) return;
+    const unsub = fbSubscribeUserCommunities(fbAuth.currentUser.uid, (m) => setMyCommunities(m));
+    return () => unsub();
+  }, []);
+
+  const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
+
+  const filtered = communities.filter(co => {
+    if (filter === "mine") {
+      if (!myCommunities.has(co.id)) return false;
+    } else if (filter !== "all") {
+      if (co.category !== filter) return false;
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      if (!co.name.toLowerCase().includes(q) && !(co.description||"").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${c.border}`, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+        <div style={{ ...a(0) }}>
+          <div style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>Communities</div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>Find your people in Doha</div>
+        </div>
+        <button onClick={()=>{ sfx.tap(); onCreateCommunity(); }} style={{ display:"flex", alignItems:"center", gap:5, background:c.accent, border:"none", borderRadius:11, padding:"9px 13px", cursor:"pointer", flexShrink:0 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span style={{ fontSize:12, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>Create</span>
+        </button>
+      </div>
+
+      {/* Search */}
+      <div style={{ padding:"10px 16px 8px", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:9, background:c.surface, border:`1.5px solid ${c.border}`, borderRadius:12, padding:"10px 14px" }}>
+          <Ico.Search s={15} c={c.sub}/>
+          <input
+            value={search}
+            onChange={e=>setSearch(e.target.value)}
+            placeholder="Search communities..."
+            style={{ flex:1, background:"none", border:"none", fontSize:15, color:c.text, fontFamily:"'DM Sans',sans-serif", outline:"none", minWidth:0 }}
+          />
+        </div>
+      </div>
+
+      {/* Filter pills */}
+      <div style={{ padding:"4px 16px 12px", flexShrink:0, overflowX:"auto", display:"flex", gap:7 }}>
+        {[
+          { key:"all",  label:"All" },
+          { key:"mine", label:`Joined${myCommunities.size>0?` (${myCommunities.size})`:""}` },
+          ...COMMUNITY_CATEGORIES.slice(0, 7).map(cat => ({ key: cat.key, label: cat.label })),
+        ].map(p => (
+          <button key={p.key} onClick={()=>{ sfx.tap(); setFilter(p.key); }} style={{
+            background: filter===p.key ? c.accent : "transparent",
+            color: filter===p.key ? "#FFFFFF" : c.sub,
+            border: filter===p.key ? "none" : `1px solid ${c.border}`,
+            borderRadius:18, padding:"6px 13px",
+            fontSize:11, fontWeight:600, fontFamily:"'DM Sans',sans-serif",
+            cursor:"pointer", flexShrink:0, whiteSpace:"nowrap",
+            transition:"all 0.15s",
+          }}>{p.label}</button>
+        ))}
+      </div>
+
+      {/* List */}
+      <div style={{ flex:1, overflowY:"auto", padding:"4px 16px 24px" }}>
+        {loading ? (
+          <div style={{ textAlign:"center", padding:"60px 20px", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"40px 20px", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>
+            {filter === "mine" ? (
+              <>You haven't joined any communities yet.<br/>Browse and tap one to join.</>
+            ) : search ? (
+              <>No communities match "{search}".</>
+            ) : communities.length === 0 ? (
+              <>
+                No communities yet — be the first.<br/>
+                <button onClick={onCreateCommunity} style={{ marginTop:14, background:c.accent, border:"none", borderRadius:11, padding:"10px 18px", color:"#FFFFFF", fontWeight:700, fontSize:13, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Create the first one</button>
+              </>
+            ) : (
+              <>No communities in this category yet.</>
+            )}
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:10, ...a(0.05) }}>
+            {filtered.map(co => (
+              <CommunityCard key={co.id} community={co} theme={theme} isMember={myCommunities.has(co.id)} onTap={onOpenCommunity}/>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Single community detail screen
+function CommunityDetail({ theme, lang, communityId, onBack, onPostInCommunity }) {
+  const [community, setCommunity] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [myMembership, setMyMembership] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [on, setOn] = useState(false);
+  const c = TH[theme];
+
+  useEffect(()=>{ setTimeout(()=>setOn(true), 60); },[]);
+
+  useEffect(() => {
+    const unsub = fbSubscribeCommunity(communityId, (co) => setCommunity(co));
+    return () => unsub();
+  }, [communityId]);
+
+  useEffect(() => {
+    const unsub = fbSubscribeCommunityMembers(communityId, (list) => {
+      setMembers(list);
+      if (fbAuth.currentUser) {
+        const me = list.find(m => m.id === fbAuth.currentUser.uid);
+        setMyMembership(me || null);
+      }
+    });
+    return () => unsub();
+  }, [communityId]);
+
+  const handleJoin = async () => {
+    if (!fbAuth.currentUser) return;
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await fbJoinCommunity(communityId, fbAuth.currentUser.uid);
+      sfx.success();
+    } catch (e) {
+      setError(e.message || "Couldn't join.");
+      sfx.error();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    if (!fbAuth.currentUser) return;
+    if (busy) return;
+    if (!confirm("Leave this community?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await fbLeaveCommunity(communityId, fbAuth.currentUser.uid);
+      sfx.voteDown();
+    } catch (e) {
+      setError(e.message || "Couldn't leave.");
+      sfx.error();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
+
+  if (!community) {
+    return (
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ padding:"12px 20px 14px", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${c.border}` }}>
+          <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+        </div>
+        <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
+      </div>
+    );
+  }
+
+  const isOwner   = myMembership?.role === "owner";
+  const isMod     = myMembership?.role === "mod" || isOwner;
+  const isMember  = !!myMembership && !myMembership.banned;
+  const isBanned  = myMembership?.banned;
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"12px 20px 14px", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+        <span style={{ fontSize:15, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{community.name}</span>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto" }}>
+        {/* Banner */}
+        <div style={{ height:90, background:`linear-gradient(135deg, ${community.bannerColor || c.accent}, ${community.bannerColor || c.accent}cc)`, position:"relative", ...a(0) }}/>
+
+        {/* Header info */}
+        <div style={{ padding:"14px 20px 18px", borderBottom:`1px solid ${c.border}`, ...a(0.05) }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginTop:-32, marginBottom:14 }}>
+            <div style={{ width:64, height:64, borderRadius:16, background:community.bannerColor || c.accent, border:`4px solid ${c.bg}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <span style={{ fontSize:28, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>
+                {community.name.charAt(0).toUpperCase()}
+              </span>
+            </div>
+            <div style={{ flex:1, paddingTop:34 }}>
+              {isMember ? (
+                <button onClick={handleLeave} disabled={busy || isOwner} style={{ background:"transparent", color:c.sub, border:`1.5px solid ${c.border}`, borderRadius:11, padding:"8px 16px", fontSize:12, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor: busy||isOwner ? "default" : "pointer", opacity: busy||isOwner ? 0.5 : 1 }}>
+                  {isOwner ? "Owner" : "Joined ✓"}
+                </button>
+              ) : isBanned ? (
+                <button disabled style={{ background:"transparent", color:"#DC2626", border:"1.5px solid #DC262655", borderRadius:11, padding:"8px 16px", fontSize:12, fontWeight:700, fontFamily:"'DM Sans',sans-serif", opacity:0.7 }}>
+                  Banned
+                </button>
+              ) : (
+                <button onClick={handleJoin} disabled={busy} style={{ background:c.accent, color:"#FFFFFF", border:"none", borderRadius:11, padding:"8px 18px", fontSize:12, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 }}>
+                  {busy ? "..." : "Join"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:5 }}>
+            <span style={{ fontSize:18, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>{community.name}</span>
+            {community.verified && <span style={{ fontSize:9, fontWeight:800, color:c.accent, background:`${c.accent}15`, border:`1px solid ${c.accent}30`, borderRadius:5, padding:"1px 6px", fontFamily:"'DM Sans',sans-serif" }}>VERIFIED</span>}
+          </div>
+          <div style={{ display:"flex", gap:14, marginBottom:10 }}>
+            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+              <span style={{ color:c.text, fontWeight:700 }}>{community.memberCount||0}</span> {community.memberCount===1?"member":"members"}
+            </span>
+            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+              <span style={{ color:c.text, fontWeight:700 }}>{community.postCount||0}</span> posts
+            </span>
+            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", textTransform:"capitalize" }}>
+              {community.type || "public"}
+            </span>
+          </div>
+          {community.description && (
+            <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:6 }}>
+              {community.description}
+            </div>
+          )}
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+            Created by <span style={{ color:c.text, fontWeight:600 }}>@{community.ownerUsername || "owner"}</span>
+          </div>
+          {error && <div style={{ marginTop:8, fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>{error}</div>}
+        </div>
+
+        {/* Action row when joined */}
+        {isMember && !isOwner && (
+          <div style={{ padding:"16px 20px 0", ...a(0.1) }}>
+            <button onClick={()=>onPostInCommunity && onPostInCommunity(community)} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:c.accent, border:"none", borderRadius:13, padding:"12px 0", fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              Post in this community
+            </button>
+          </div>
+        )}
+
+        {/* Owner / mod section */}
+        {isMod && (
+          <div style={{ padding:"16px 20px 0", ...a(0.12) }}>
+            <div style={{ background:`${c.accent}08`, border:`1px dashed ${c.accent}55`, borderRadius:12, padding:"12px 14px" }}>
+              <div style={{ fontSize:11, fontWeight:800, color:c.accent, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8, fontFamily:"'DM Sans',sans-serif" }}>{isOwner?"Owner Tools":"Mod Tools"}</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
+                Member management, post moderation, and community settings coming next session.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Posts placeholder — coming next session */}
+        <div style={{ padding:"24px 20px", ...a(0.16) }}>
+          <div style={{ fontSize:11, fontWeight:800, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Community Feed</div>
+          <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"30px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:5 }}>Posts coming soon</div>
+            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
+              Post-to-community is being wired up.<br/>Members will see a feed of community-only posts here.
+            </div>
+          </div>
+        </div>
+
+        <div style={{ height:24 }}/>
+      </div>
+    </div>
+  );
+}
+
+// Create community form
+function CreateCommunity({ theme, lang, onBack, onCreated }) {
+  const [name, setName]               = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory]       = useState("general");
+  const [type, setType]               = useState("public");
+  const [bannerColor, setBannerColor] = useState(COMMUNITY_BANNERS[0]);
+  const [nameStatus, setNameStatus]   = useState("idle"); // idle | checking | available | taken | invalid
+  const [error, setError]             = useState("");
+  const [busy, setBusy]               = useState(false);
+  const [on, setOn]                   = useState(false);
+  const checkRef = useRef(null);
+  const c = TH[theme];
+
+  useEffect(()=>{ setTimeout(()=>setOn(true), 60); },[]);
+
+  // Debounced name uniqueness check
+  useEffect(() => {
+    if (checkRef.current) clearTimeout(checkRef.current);
+    if (!name.trim()) { setNameStatus("idle"); return; }
+    if (name.trim().length < 3) { setNameStatus("invalid"); return; }
+    if (!/^[a-zA-Z0-9 _-]+$/.test(name.trim())) { setNameStatus("invalid"); return; }
+    setNameStatus("checking");
+    checkRef.current = setTimeout(async () => {
+      try {
+        const ok = await fbCheckCommunityNameAvailable(name.trim());
+        setNameStatus(ok ? "available" : "taken");
+      } catch (e) { setNameStatus("idle"); }
+    }, 500);
+    return () => clearTimeout(checkRef.current);
+  }, [name]);
+
+  const ready = name.trim().length >= 3 && nameStatus === "available" && !busy;
+
+  const handleCreate = async () => {
+    if (!ready || !fbAuth.currentUser) return;
+    setBusy(true);
+    setError("");
+    try {
+      const meDoc = await fbGetUserDoc(fbAuth.currentUser.uid);
+      const cid = await fbCreateCommunity(
+        { name: name.trim(), description: description.trim(), category, type, bannerColor },
+        fbAuth.currentUser.uid,
+        meDoc?.username || "user",
+        meDoc?.avatar || "a1",
+      );
+      sfx.success();
+      onCreated && onCreated(cid);
+    } catch (e) {
+      setError("Couldn't create community. Try again.");
+      sfx.error();
+      setBusy(false);
+    }
+  };
+
+  const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"12px 20px 14px", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+        <span style={{ fontSize:17, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Create Community</span>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"18px 20px 24px", display:"flex", flexDirection:"column", gap:16 }}>
+        {/* Banner preview */}
+        <div style={{ ...a(0) }}>
+          <div style={{ height:80, borderRadius:14, background:`linear-gradient(135deg, ${bannerColor}, ${bannerColor}cc)`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <span style={{ fontSize:32, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>
+              {(name || "?").charAt(0).toUpperCase()}
+            </span>
+          </div>
+        </div>
+
+        {/* Banner color picker */}
+        <div style={{ ...a(0.04) }}>
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:7, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Banner color</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {COMMUNITY_BANNERS.map(col => (
+              <button key={col} onClick={()=>{ sfx.tap(); setBannerColor(col); }} style={{
+                width:34, height:34, borderRadius:10, background:col,
+                border: bannerColor===col ? `3px solid ${c.text}` : `2px solid ${c.border}`,
+                cursor:"pointer", padding:0,
+              }}/>
+            ))}
+          </div>
+        </div>
+
+        {/* Name */}
+        <div style={{ ...a(0.08) }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
+            <span style={{ fontSize:11, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Community name *</span>
+            {nameStatus === "checking" && <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Checking...</span>}
+            {nameStatus === "available" && <span style={{ fontSize:10, color:"#16A34A", fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>✓ Available</span>}
+            {nameStatus === "taken" && <span style={{ fontSize:10, color:c.accent, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>✕ Taken</span>}
+            {nameStatus === "invalid" && <span style={{ fontSize:10, color:c.accent, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>3+ chars · letters/numbers only</span>}
+          </div>
+          <input
+            value={name}
+            onChange={e=>setName(e.target.value.slice(0, 30))}
+            placeholder="e.g. Qatar Burgers"
+            style={{ ...inp(c), borderColor: nameStatus==="taken"||nameStatus==="invalid" ? c.accent : c.inputBorder }}
+          />
+        </div>
+
+        {/* Description */}
+        <div style={{ ...a(0.12) }}>
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:7, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>What's it about? <span style={{ textTransform:"none", letterSpacing:0, color:c.sub, fontWeight:400 }}>· optional</span></div>
+          <textarea
+            value={description}
+            onChange={e=>setDescription(e.target.value.slice(0, 200))}
+            placeholder="A community for finding the best burger spots in Qatar..."
+            rows={3}
+            style={{ ...inp(c), resize:"vertical", minHeight:70, lineHeight:1.5 }}
+          />
+          <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:4, textAlign:"right" }}>{description.length}/200</div>
+        </div>
+
+        {/* Category */}
+        <div style={{ ...a(0.16) }}>
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:7, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Category</div>
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+            {COMMUNITY_CATEGORIES.map(cat => (
+              <button key={cat.key} onClick={()=>{ sfx.tap(); setCategory(cat.key); }} style={{
+                background: category===cat.key ? c.accent : "transparent",
+                color: category===cat.key ? "#FFFFFF" : c.sub,
+                border: category===cat.key ? "none" : `1px solid ${c.border}`,
+                borderRadius:18, padding:"7px 14px",
+                fontSize:11, fontWeight:600, fontFamily:"'DM Sans',sans-serif",
+                cursor:"pointer", transition:"all 0.15s",
+              }}>{cat.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Type */}
+        <div style={{ ...a(0.20) }}>
+          <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:7, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Privacy</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[
+              { key:"public",  label:"Public",  sub:"Anyone can join and post" },
+              { key:"private", label:"Private", sub:"You approve members" },
+            ].map(opt => (
+              <button key={opt.key} onClick={()=>{ sfx.tap(); setType(opt.key); }} style={{
+                flex:1, textAlign:"left",
+                background: type===opt.key ? `${c.accent}10` : c.surface,
+                border: type===opt.key ? `1.5px solid ${c.accent}` : `1.5px solid ${c.border}`,
+                borderRadius:12, padding:"11px 13px",
+                cursor:"pointer", transition:"all 0.15s",
+              }}>
+                <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{opt.label}</div>
+                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{opt.sub}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <div style={{ ...a(0.24), fontSize:12, color:c.accent, fontFamily:"'DM Sans',sans-serif" }}>{error}</div>}
+
+        {/* Submit */}
+        <div style={{ ...a(0.26), marginTop:8 }}>
+          <button onClick={handleCreate} disabled={!ready} style={{
+            width:"100%", padding:"13px 0",
+            background: ready ? c.accent : c.muted,
+            color: ready ? "#FFFFFF" : c.sub,
+            border:"none", borderRadius:13,
+            fontSize:14, fontWeight:700, fontFamily:"'DM Sans',sans-serif",
+            cursor: ready ? "pointer" : "default",
+            transition:"all 0.15s",
+          }}>
+            {busy ? "Creating..." : "Create Community"}
+          </button>
+          <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:8, textAlign:"center", lineHeight:1.5 }}>
+            You'll be the owner. You can manage posts and members.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // APP SHELL
 // ─────────────────────────────────────────────────────────────────────────────
 export default function BKMApp() {
@@ -4341,6 +4962,7 @@ export default function BKMApp() {
   const [newPostId, setNewPostId]   = useState(200);
   const [authReady, setAuthReady]   = useState(false);
   const [fbUser, setFbUser]         = useState(null);
+  const [activeCommunityId, setActiveCommunityId] = useState(null);
 
   // === Firebase auth state listener — keeps UI in sync with auth ===
   const initialAuthRouted = useRef(false);
@@ -4489,6 +5111,7 @@ export default function BKMApp() {
     setPushed(null);
     setTab("feed");
     setPartnerOrigin(null);
+    initialAuthRouted.current = false; // allow re-routing on next signin
     go("opening");
   };
 
@@ -4578,9 +5201,10 @@ export default function BKMApp() {
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
     if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={feedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery}/>;
+    if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
     if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
-    if (tab==="dev")     return <DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject}/>;
+    if (tab==="dev")     return <ErrorBoundary><DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject}/></ErrorBoundary>;
   };
 
   // Inject PWA meta tags + force body bg to match theme so safe-area isn't black
@@ -4745,22 +5369,29 @@ export default function BKMApp() {
             const target = partnerOrigin === "merchantLogin" ? "merchantLogin" : (SESSION.loggedIn ? "feed" : "opening");
             go(target);
           }}/>}
+          {screen==="community"      && <ErrorBoundary><CommunityDetail theme={theme} lang={lang} communityId={activeCommunityId} onBack={()=>{ go("feed"); setTab("communities"); }} onPostInCommunity={()=>{ /* Session 2: post-to-community */ }}/></ErrorBoundary>}
+          {screen==="createCommunity"&& <ErrorBoundary><CreateCommunity theme={theme} lang={lang} onBack={()=>{ go("feed"); setTab("communities"); }} onCreated={(cid)=>{ setActiveCommunityId(cid); go("community"); }}/></ErrorBoundary>}
           {screen==="feed"          && renderTab()}
         </div>
 
-        {/* Bottom nav — 4 tabs, split with divider */}
+        {/* Bottom nav — 5 tabs, split with divider */}
         {showTabs && (
           <div style={{ height:64, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", background:c.bg, flexShrink:0 }}>
-            {/* Left — consumer side */}
-            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"space-around" }}>
+            {/* Left — consumer side (Feed, Search, Communities) */}
+            <div style={{ flex:1.5, display:"flex", alignItems:"center", justifyContent:"space-around" }}>
               {[
-                { key:"feed",   label:"Feed",   Ico:Ico.Home   },
-                { key:"search", label:"Search", Ico:Ico.Search },
+                { key:"feed",        label:"Feed",   Ico:Ico.Home   },
+                { key:"search",      label:"Search", Ico:Ico.Search },
+                { key:"communities", label:"Comms",  isCommunities:true },
               ].map(item => {
                 const active = !pushedScreen && tab===item.key;
                 return (
-                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 18px" }}>
-                    <item.Ico s={21} c={active?c.accent:c.sub}/>
+                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 8px" }}>
+                    {item.isCommunities ? (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active?c.accent:c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    ) : (
+                      <item.Ico s={20} c={active?c.accent:c.sub}/>
+                    )}
                     <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
                   </button>
                 );
@@ -4768,7 +5399,7 @@ export default function BKMApp() {
             </div>
             {/* Divider */}
             <div style={{ width:1, height:32, background:c.border, flexShrink:0 }}/>
-            {/* Right — contributor side */}
+            {/* Right — contributor side (Post, Profile) */}
             <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"space-around" }}>
               {[
                 { key:"post",    label:"Post",    Ico:Ico.Plus   },
@@ -4776,8 +5407,8 @@ export default function BKMApp() {
               ].map(item => {
                 const active = !pushedScreen && tab===item.key;
                 return (
-                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 18px" }}>
-                    <item.Ico s={21} c={active?c.accent:c.sub}/>
+                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 12px" }}>
+                    <item.Ico s={20} c={active?c.accent:c.sub}/>
                     <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
                   </button>
                 );
@@ -4787,10 +5418,10 @@ export default function BKMApp() {
             {isAdmin && (
               <>
                 <div style={{ width:1, height:32, background:c.border, flexShrink:0 }}/>
-                <button onClick={()=>{ setPushed(null); setTab("dev"); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 14px", position:"relative" }}>
-                  <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={!pushedScreen&&tab==="dev"?"#1D6FEB":c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                <button onClick={()=>{ setPushed(null); setTab("dev"); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 10px", position:"relative" }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={!pushedScreen&&tab==="dev"?"#1D6FEB":c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                   {pendingPosts.length > 0 && (
-                    <div style={{ position:"absolute", top:4, right:8, width:16, height:16, borderRadius:"50%", background:"#EF4444", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <div style={{ position:"absolute", top:4, right:4, width:16, height:16, borderRadius:"50%", background:"#EF4444", display:"flex", alignItems:"center", justifyContent:"center" }}>
                       <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{pendingPosts.length}</span>
                     </div>
                   )}
