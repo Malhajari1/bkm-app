@@ -503,7 +503,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.8.1 · bell + vote + update fix";
+const APP_VERSION = "v0.8.2 · profile crash + bell fix";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2648,7 +2648,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // ─────────────────────────────────────────────────────────────────────────────
 // FEED
 // ─────────────────────────────────────────────────────────────────────────────
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false, onNotifications, unreadCount=0 }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||[]);
   // These now come from Firestore subscriptions in App.jsx, passed via props.
@@ -3070,7 +3070,7 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
           </div>
         )}
 
-        {/* Search bar */}
+        {/* Search bar + Notification bell */}
         <div style={{ padding:"0 20px 16px" }}>
           <div style={{ display:"flex", gap:10 }}>
             <div style={{ flex:1, display:"flex", alignItems:"center", gap:10, background:c.inputBg, border:`1.5px solid ${c.inputBorder}`, borderRadius:14, padding:"12px 16px", transition:"border-color 0.2s" }}>
@@ -3078,8 +3078,11 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
               <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&query.trim()&&onSearch(query)} placeholder={hint||"Search deals..."} style={{ flex:1, background:"none", border:"none", outline:"none", fontSize:14, color:c.text, fontFamily:"'DM Sans',sans-serif" }}
                 onFocus={e=>e.currentTarget.parentNode.style.borderColor=c.accent} onBlur={e=>e.currentTarget.parentNode.style.borderColor=c.inputBorder}/>
             </div>
-            <button onClick={()=>query.trim()&&onSearch(query)} style={{ width:48, background:query.trim()?c.btnBg:c.muted, border:"none", borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", cursor:query.trim()?"pointer":"default", flexShrink:0 }}>
-              <Ico.Search s={16} c={query.trim()?c.btnText:c.sub}/>
+            <button onClick={()=>{ sfx.tap(); onNotifications && onNotifications(); }} aria-label="Notifications" style={{ position:"relative", width:48, background:c.inputBg, border:`1.5px solid ${c.inputBorder}`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              {unreadCount > 0 && (
+                <div style={{ position:"absolute", top:4, right:4, minWidth:16, height:16, borderRadius:8, background:c.accent, color:"#FFFFFF", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`2px solid ${c.bg}`, fontFamily:"'DM Sans',sans-serif", animation:"bellPulse 1.4s ease-in-out infinite" }}>{unreadCount > 99 ? "99+" : unreadCount}</div>
+              )}
             </button>
           </div>
         </div>
@@ -3454,7 +3457,7 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
               {(() => {
                 const realPostCount = myDeals.length;
                 const totalUps      = myDeals.reduce((sum, d) => sum + (d.ups || 0), 0);
-                const followingCount = isOwn ? (userFollows?.size ?? SESSION.following.size) : (user.following||0);
+                const followingCount = isOwn ? (SESSION.following?.size || 0) : (user.following || 0);
                 return [
                   { label:"Posts",      val: realPostCount,    onClick: null },
                   { label:"Followers",  val: user.followers||0, onClick: null },
@@ -5991,7 +5994,7 @@ export default function BKMApp() {
     if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead} onMarkOne={markOneRead}/>;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin} onNotifications={()=>push("notifications",null)} unreadCount={unreadCount}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
