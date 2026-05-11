@@ -422,6 +422,10 @@ const fbAddComment = async (dealId, uid, username, avatar, text) => {
     cheers: 0,
     cheeredBy: [],
   });
+  // Denormalize: bump commentCount on the parent deal so the feed sees it live
+  try {
+    await updateDoc(doc(fbDb, "deals", dealId), { commentCount: increment(1) });
+  } catch(e) { console.warn("[BKM] commentCount bump failed:", e); }
   // Notify the post author (if not self-commenting)
   try {
     const dealSnap = await getDoc(doc(fbDb, "deals", dealId));
@@ -441,8 +445,13 @@ const fbAddComment = async (dealId, uid, username, avatar, text) => {
   return ref.id;
 };
 
-const fbDeleteComment = (dealId, commentId) =>
-  deleteDoc(doc(fbDb, "deals", dealId, "comments", commentId));
+const fbDeleteComment = async (dealId, commentId) => {
+  await deleteDoc(doc(fbDb, "deals", dealId, "comments", commentId));
+  // Decrement the deal's commentCount (clamped to ≥ 0 via best-effort)
+  try {
+    await updateDoc(doc(fbDb, "deals", dealId), { commentCount: increment(-1) });
+  } catch(e) { console.warn("[BKM] commentCount decrement failed:", e); }
+};
 
 const fbToggleCheer = async (dealId, commentId, uid, actorUsername) => {
   const ref = doc(fbDb, "deals", dealId, "comments", commentId);
@@ -596,7 +605,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.9.0 · comments + cheers + posting refresh";
+const APP_VERSION = "v0.9.1 · vote spam fix + comment count live";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2757,6 +2766,9 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const claimed     = userClaimed     || new Set();
   const votes       = userVotes       || {};
   const bookmarked  = userBookmarks   || new Set();
+  // Per-deal vote in-flight lock — prevents spam-clicks from desyncing counts.
+  // Using a ref (not state) so subsequent clicks see the lock synchronously.
+  const voteInFlight = useRef(new Set());
   const [activeCat, setActiveCat]   = useState("all");
   // Default location to "Doha, Qatar" so we never block the feed with a permission modal.
   // User can tap the location chip in the header to switch districts manually.
@@ -2909,6 +2921,9 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
 
   const handleVote = (id, dir) => {
     if (!fbAuth.currentUser) return;
+    // Prevent spam: ignore further taps on the same deal until Firestore confirms
+    if (voteInFlight.current.has(id)) return;
+    voteInFlight.current.add(id);
     const prev = votes[id] || null;
     // Optimistic local update on the deal counters (subscription will sync)
     setDeals(ds => ds.map(d => {
@@ -2919,7 +2934,9 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
       if (dir!==prev) { if(dir==="up") ups++; if(dir==="down") downs++; }
       return { ...d, ups, downs };
     }));
-    fbRecordVote(fbAuth.currentUser.uid, id, dir).catch(()=>{});
+    fbRecordVote(fbAuth.currentUser.uid, id, dir)
+      .catch(()=>{})
+      .finally(() => { voteInFlight.current.delete(id); });
     if (dir==="up" && prev!=="up") {
       const deal = deals.find(d=>d.id===id);
       if (deal && deal.user.id !== fbAuth.currentUser.uid) {
