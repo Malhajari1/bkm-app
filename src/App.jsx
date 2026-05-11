@@ -503,7 +503,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.8.0 · feed UX overhaul";
+const APP_VERSION = "v0.8.1 · bell + vote + update fix";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2470,11 +2470,11 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 
         {/* Action bar */}
         <div style={{ display:"flex", alignItems:"center", gap:7, position:"relative" }}>
-          <button onClick={()=>canVote && handleVote("up")} disabled={!canVote} title={canVote?"Helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"not-allowed", opacity:canVote?1:0.45, transition:"all 0.15s", animation:upAnim?"upBurst 0.55s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
+          <button onClick={()=>canVote && handleVote("up")} title={canVote?"Helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"default", transition:"background 0.15s, border-color 0.15s, color 0.15s", transform:upAnim?"scale(1.06)":"scale(1)", transitionProperty:"background, border-color, color, transform" }}>
             <Ico.Up s={13} c={vote==="up"?c.accent:c.sub}/>
-            <span style={{ fontSize:12, fontWeight:vote==="up"?700:400, color:vote==="up"?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", transition:"color 0.15s" }}>{upCount}</span>
+            <span style={{ fontSize:12, fontWeight:vote==="up"?700:400, color:vote==="up"?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{upCount}</span>
           </button>
-          <button onClick={()=>canVote && handleVote("down")} disabled={!canVote} title={canVote?"Not helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="down"?`${c.sub}18`:"transparent", border:`1px solid ${vote==="down"?c.sub:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"not-allowed", opacity:canVote?1:0.45, transition:"all 0.15s", animation:downAnim?"downSink 0.45s ease both":"none" }}>
+          <button onClick={()=>canVote && handleVote("down")} title={canVote?"Not helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="down"?`${c.sub}18`:"transparent", border:`1px solid ${vote==="down"?c.sub:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"default", transition:"background 0.15s, border-color 0.15s, color 0.15s", transform:downAnim?"scale(0.96)":"scale(1)", transitionProperty:"background, border-color, color, transform" }}>
             <Ico.Down s={13} c={vote==="down"?c.text:c.sub}/>
             <span style={{ fontSize:12, color:vote==="down"?c.text:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{downCount}</span>
           </button>
@@ -6023,6 +6023,20 @@ export default function BKMApp() {
 
   // Service worker update prompt — fires when a new build is deployed
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  // Version-change celebration — fires on first load after a deploy
+  const [showVersionModal, setShowVersionModal] = useState(false);
+  const [lastVersion, setLastVersion] = useState("");
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem("bkm_last_version") || "";
+      if (seen !== APP_VERSION) {
+        setLastVersion(seen);
+        // Only celebrate if there WAS a previous version (not first install)
+        if (seen) setShowVersionModal(true);
+        localStorage.setItem("bkm_last_version", APP_VERSION);
+      }
+    } catch(e) {}
+  }, []);
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     let waitingSW = null;
@@ -6065,40 +6079,38 @@ export default function BKMApp() {
       {updateAvailable && (
         <div style={{ position:"fixed", top:"env(safe-area-inset-top)", left:0, right:0, zIndex:300, padding:"10px 14px", background:c.accent, color:"#FFFFFF", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, boxShadow:"0 4px 14px rgba(0,0,0,0.18)", animation:"slideDown 0.3s cubic-bezier(0.34,1.2,0.64,1) both" }}>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:13, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>New version available</div>
-            <div style={{ fontSize:11, opacity:0.85, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>Refresh to get the latest features</div>
+            <div style={{ fontSize:13, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>Update available</div>
+            <div style={{ fontSize:11, opacity:0.85, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>Tap to refresh</div>
           </div>
           <button onClick={()=>{ if (window._bkmActivateUpdate) window._bkmActivateUpdate(); }} style={{ background:"#FFFFFF", color:c.accent, border:"none", borderRadius:9, padding:"7px 14px", fontSize:12, fontWeight:800, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Update</button>
         </div>
       )}
-      {/* Global notification bell — visible on all main tabs */}
-      {screen==="feed" && !pushedScreen && !["onboarding","consent"].includes(screen) && (
-        <button onClick={()=>push("notifications",null)} aria-label="Notifications" style={{
-          position:"fixed",
-          top:`calc(env(safe-area-inset-top) + ${updateAvailable?56:12}px)`,
-          right:14,
-          width:42, height:42, borderRadius:"50%",
-          background:c.surface, border:`1px solid ${c.border}`,
-          cursor:"pointer",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          zIndex:60,
-          boxShadow:"0 3px 12px rgba(28,18,8,0.10)",
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          {unreadCount > 0 && (
-            <div style={{
-              position:"absolute", top:4, right:4,
-              minWidth:18, height:18, borderRadius:9,
-              background:c.accent, color:"#FFFFFF",
-              fontSize:9, fontWeight:800,
-              display:"flex", alignItems:"center", justifyContent:"center",
-              padding:"0 5px",
-              border:`2px solid ${c.bg}`,
-              fontFamily:"'DM Sans',sans-serif",
-              animation: unreadCount > 0 ? "bellPulse 1.4s ease-in-out infinite" : "none",
-            }}>{unreadCount > 99 ? "99+" : unreadCount}</div>
-          )}
-        </button>
+      {/* Version-change celebration modal — appears once after a successful update */}
+      {showVersionModal && (
+        <div style={{ position:"fixed", inset:0, zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 24px", animation:"fu 0.3s ease both" }}>
+          <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.65)", backdropFilter:"blur(4px)" }} onClick={()=>setShowVersionModal(false)}/>
+          <div style={{ position:"relative", zIndex:1, background:c.surface, borderRadius:24, padding:"28px 24px 22px", textAlign:"center", maxWidth:360, width:"100%", animation:"scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both", boxShadow:"0 20px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display:"flex", justifyContent:"center", marginBottom:14 }}>
+              <div style={{ width:64, height:64, borderRadius:18, background:`linear-gradient(135deg, ${c.accent}, ${theme==="dark"?"#C9892A":"#FFD17A"})`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 8px 24px ${c.accent}55`, animation:"upBurst 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.15s both" }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                  <polyline points="9 12 11 14 15 10"/>
+                </svg>
+              </div>
+            </div>
+            <div style={{ fontSize:11, fontWeight:800, color:c.accent, letterSpacing:"0.14em", fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>UPDATED</div>
+            <div style={{ fontSize:22, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em", marginBottom:6 }}>
+              You're on {APP_VERSION.split("·")[0].trim()}
+            </div>
+            <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:18 }}>
+              {APP_VERSION.split("·").length > 1 ? `Latest changes: ${APP_VERSION.split("·").slice(1).join("·").trim()}.` : "New features and fixes are now live."}
+              {lastVersion && <><br/><span style={{ opacity:0.7 }}>Previous: {lastVersion.split("·")[0].trim()}</span></>}
+            </div>
+            <button onClick={()=>{ sfx.success(); setShowVersionModal(false); }} style={{ width:"100%", padding:"13px 0", background:c.accent, border:"none", borderRadius:13, fontSize:14, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", letterSpacing:"0.02em", boxShadow:`0 4px 14px ${c.accent}55` }}>
+              Got it
+            </button>
+          </div>
+        </div>
       )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Noto+Naskh Arabic:wght@400;500;600&display=swap');
@@ -6287,12 +6299,17 @@ export default function BKMApp() {
             <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"space-around" }}>
               {[
                 { key:"post",    label:"Post",    Ico:Ico.Plus   },
-                { key:"profile", label:"Profile", Ico:Ico.Person },
+                { key:"profile", label:"Profile", Ico:Ico.Person, badge: unreadCount },
               ].map(item => {
                 const active = !pushedScreen && tab===item.key;
                 return (
-                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 12px" }}>
+                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 12px", position:"relative" }}>
                     <item.Ico s={20} c={active?c.accent:c.sub}/>
+                    {item.badge > 0 && (
+                      <div style={{ position:"absolute", top:2, right:6, minWidth:16, height:16, borderRadius:8, background:c.accent, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`2px solid ${c.bg}`, animation:"bellPulse 1.4s ease-in-out infinite" }}>
+                        <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{item.badge > 99 ? "99+" : item.badge}</span>
+                      </div>
+                    )}
                     <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
                   </button>
                 );
