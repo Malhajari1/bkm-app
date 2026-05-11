@@ -405,6 +405,99 @@ const fbSubscribeUserBlocks = (uid, cb) => onSnapshot(collection(fbDb, "users", 
 // === Delete deal (owner or admin) ===
 const fbDeleteDeal = (dealId) => deleteDoc(doc(fbDb, "deals", dealId));
 
+// === Comments + Cheers ===
+// Structure: /deals/{dealId}/comments/{commentId}
+// Each comment stores: { uid, username, avatar, text, createdAt, cheers, cheeredBy: [] }
+// "Top cheer" is computed client-side as max cheers (ties broken by oldest).
+const fbAddComment = async (dealId, uid, username, avatar, text) => {
+  const trimmed = (text || "").trim();
+  if (!trimmed) throw new Error("Empty comment");
+  if (trimmed.length > 280) throw new Error("Comment too long");
+  const ref = await addDoc(collection(fbDb, "deals", dealId, "comments"), {
+    uid,
+    username,
+    avatar: avatar || "a1",
+    text: trimmed,
+    createdAt: serverTimestamp(),
+    cheers: 0,
+    cheeredBy: [],
+  });
+  // Notify the post author (if not self-commenting)
+  try {
+    const dealSnap = await getDoc(doc(fbDb, "deals", dealId));
+    const dealData = dealSnap.data();
+    if (dealData && dealData.userId && dealData.userId !== uid) {
+      await fbCreateNotification(dealData.userId, {
+        type: "comment",
+        text: `@${username} commented on your post${dealData.place ? ` about ${dealData.place}` : ""}`,
+        actorUid: uid,
+        actorUsername: username,
+        dealId,
+        commentId: ref.id,
+        preview: trimmed.slice(0, 80),
+      });
+    }
+  } catch(e) { console.warn("[BKM] comment notify failed:", e); }
+  return ref.id;
+};
+
+const fbDeleteComment = (dealId, commentId) =>
+  deleteDoc(doc(fbDb, "deals", dealId, "comments", commentId));
+
+const fbToggleCheer = async (dealId, commentId, uid, actorUsername) => {
+  const ref = doc(fbDb, "deals", dealId, "comments", commentId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const list = Array.isArray(data.cheeredBy) ? data.cheeredBy : [];
+  const has = list.includes(uid);
+  if (has) {
+    await updateDoc(ref, {
+      cheeredBy: list.filter(u => u !== uid),
+      cheers: Math.max(0, (data.cheers || 0) - 1),
+    });
+  } else {
+    await updateDoc(ref, {
+      cheeredBy: [...list, uid],
+      cheers: (data.cheers || 0) + 1,
+    });
+    // Notify comment author
+    try {
+      if (data.uid && data.uid !== uid) {
+        const preview = (data.text || "").slice(0, 40);
+        const who = actorUsername ? `@${actorUsername}` : "Someone";
+        await fbCreateNotification(data.uid, {
+          type: "cheer",
+          text: `${who} cheered your comment: "${preview}${data.text && data.text.length > 40 ? "..." : ""}"`,
+          actorUid: uid,
+          actorUsername: actorUsername || "",
+          dealId,
+          commentId,
+        });
+      }
+    } catch(e) {}
+  }
+};
+
+const fbSubscribeComments = (dealId, cb) => {
+  const q = query(collection(fbDb, "deals", dealId, "comments"));
+  return onSnapshot(q,
+    snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort: top-cheered first (descending), then oldest first within ties
+      list.sort((a, b) => {
+        const dc = (b.cheers || 0) - (a.cheers || 0);
+        if (dc !== 0) return dc;
+        const at = a.createdAt?.toMillis?.() || 0;
+        const bt = b.createdAt?.toMillis?.() || 0;
+        return at - bt;
+      });
+      cb(list);
+    },
+    err => { console.error("[BKM] comments error:", err); cb([]); }
+  );
+};
+
 // === Followers list (who follows me) ===
 // Uses a collectionGroup query — but that needs a Firestore index. Use a simpler approach:
 // We don't have a direct way to query "who follows uid X" without an index.
@@ -503,7 +596,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.8.2 · profile crash + bell fix";
+const APP_VERSION = "v0.9.0 · comments + cheers + posting refresh";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2478,6 +2571,14 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             <Ico.Down s={13} c={vote==="down"?c.text:c.sub}/>
             <span style={{ fontSize:12, color:vote==="down"?c.text:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{downCount}</span>
           </button>
+          {/* Comments — opens post detail with focus on comments */}
+          <button onClick={()=>onOpenPost(deal)} title="Comments" style={{ display:"flex", alignItems:"center", gap:4, background:"transparent", border:`1px solid ${c.border}`, borderRadius:20, padding:"6px 12px", cursor:"pointer", transition:"all 0.15s" }}
+            onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
+            onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{deal.commentCount || 0}</span>
+          </button>
           <div style={{ flex:1 }}/>
           {/* Bookmark */}
           <button onClick={handleBookmark} style={{ width:34, height:34, background:bookmarked?`${c.accent}15`:"transparent", border:`1px solid ${bookmarked?c.accent:c.border}`, borderRadius:"50%", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s", animation:bmarkAnim?"bookmarkPop 0.55s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
@@ -3244,9 +3345,26 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
       )}
       <div style={{ flex:1, overflowY:"auto", padding:"16px 20px 32px" }}>
 
-        {/* Header */}
-        <div style={{ ...a(0.04), display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
-          <span style={{ fontSize:18, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Post a Deal</span>
+        {/* Header with progress indicator */}
+        <div style={{ ...a(0.04), marginBottom:22 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <span style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>Post a Deal</span>
+            {(() => {
+              const filled = [!!subject, !!cat, !!platform, !!place, !!district, items.some(it=>it.n&&it.p)].filter(Boolean).length;
+              const pct = Math.round((filled / 6) * 100);
+              return (
+                <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                  <span style={{ fontSize:11, color:filled===6?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>{filled}/6</span>
+                  <div style={{ width:50, height:5, borderRadius:3, background:c.muted, overflow:"hidden" }}>
+                    <div style={{ width:`${pct}%`, height:"100%", background:`linear-gradient(90deg, ${c.accent}, #FFD17A)`, transition:"width 0.4s cubic-bezier(0.34,1.4,0.64,1)" }}/>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+          <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
+            Share a deal you found. BKM reviews every post before it goes live.
+          </div>
         </div>
 
         {/* Subject */}
@@ -3255,32 +3373,60 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
           <textarea value={subject} onChange={e=>{ const v=e.target.value.replace(/[0-9]/g,""); setSubject(v); }} placeholder="Why is this deal worth sharing? Be specific. No prices — that's what the reveal is for." style={{ ...is, minHeight:90, resize:"none", lineHeight:1.5 }} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
         </div>
 
-        {/* Category */}
-        <div style={{ ...a(0.1), marginBottom:10 }}>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>Category</div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+        {/* Category — horizontal scrolling pills, no bulk */}
+        <div style={{ ...a(0.1), marginBottom:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
+            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase" }}>Category</div>
+            {cat && <div style={{ fontSize:10, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>✓ Selected</div>}
+          </div>
+          <div style={{ display:"flex", gap:7, overflowX:"auto", margin:"0 -20px", padding:"2px 20px 8px", scrollbarWidth:"none" }}>
             {CATS.map(item=>{
-              const active=cat===item.key;
+              const active = cat===item.key;
               return (
-                <button key={item.key} onClick={()=>setCat(item.key)} style={{ aspectRatio:"1", background:active?c.btnBg:c.surface, border:`1.5px solid ${active?"transparent":c.border}`, borderRadius:14, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, cursor:"pointer", transition:"all 0.2s", boxShadow:active?`0 4px 16px ${c.accent}22`:"none" }}>
-                  <CatIcon cat={item.key} color={active?c.btnText:c.sub} size={20}/>
-                  <span style={{ fontSize:11, fontWeight:700, color:active?c.btnText:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.label}</span>
+                <button key={item.key} onClick={()=>{ setCat(item.key); sfx.tap(); }} style={{
+                  flexShrink:0,
+                  display:"inline-flex", alignItems:"center", gap:7,
+                  padding:"10px 16px",
+                  background: active ? c.accent : c.surface,
+                  border: `1.5px solid ${active ? c.accent : c.border}`,
+                  borderRadius:24,
+                  cursor:"pointer",
+                  transition:"all 0.18s cubic-bezier(0.34,1.4,0.64,1)",
+                  transform: active ? "scale(1.02)" : "scale(1)",
+                  boxShadow: active ? `0 4px 14px ${c.accent}44` : "none",
+                  whiteSpace:"nowrap",
+                }}>
+                  <span style={{ fontSize:14, lineHeight:1 }}>{item.emoji}</span>
+                  <span style={{ fontSize:13, fontWeight:active?700:600, color:active?"#FFFFFF":c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.label}</span>
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Platform source */}
-        <div style={{ ...a(0.12), marginBottom:10 }}>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>Where did you find this?</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+        {/* Platform source — colorful chip selector */}
+        <div style={{ ...a(0.12), marginBottom:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
+            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase" }}>Where did you find this?</div>
+            {platform && <div style={{ fontSize:10, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>✓ Selected</div>}
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
             {PLATFORM_OPTIONS.map(p=>{
               const active = platform===p.key;
               return (
-                <button key={p.key} onClick={()=>setPlatform(p.key)} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", background:active?`${p.color}20`:"transparent", border:`1.5px solid ${active?p.color:c.border}`, borderRadius:20, cursor:"pointer", transition:"all 0.15s" }}>
-                  <div style={{ width:7, height:7, borderRadius:"50%", background:p.color }}/>
-                  <span style={{ fontSize:12, fontWeight:active?700:500, color:active?p.color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{p.label}</span>
+                <button key={p.key} onClick={()=>{ setPlatform(p.key); sfx.tap(); }} style={{
+                  display:"flex", alignItems:"center", gap:6,
+                  padding:"9px 14px",
+                  background: active ? p.color : c.surface,
+                  border: `1.5px solid ${active ? p.color : c.border}`,
+                  borderRadius:20,
+                  cursor:"pointer",
+                  transition:"all 0.18s cubic-bezier(0.34,1.4,0.64,1)",
+                  transform: active ? "scale(1.04)" : "scale(1)",
+                  boxShadow: active ? `0 3px 12px ${p.color}55` : "none",
+                }}>
+                  <div style={{ width:7, height:7, borderRadius:"50%", background: active ? "#FFFFFF" : p.color }}/>
+                  <span style={{ fontSize:12, fontWeight:active?700:600, color:active?"#FFFFFF":c.text, fontFamily:"'DM Sans',sans-serif" }}>{p.label}</span>
                 </button>
               );
             })}
@@ -3316,11 +3462,34 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
 
         {/* Submit */}
         <div style={a(0.22)}>
-          <Btn onClick={handleSubmit} theme={theme} style={{ opacity:ready?1:0.3 }}>
-            Submit for Review
-          </Btn>
+          <button onClick={handleSubmit} disabled={!ready} style={{
+            width:"100%",
+            padding:"15px 0",
+            background: ready ? `linear-gradient(135deg, ${c.accent}, #B82253)` : c.muted,
+            color: ready ? "#FFFFFF" : c.sub,
+            border:"none",
+            borderRadius:14,
+            fontFamily:"'DM Sans',sans-serif",
+            fontSize:15, fontWeight:800,
+            letterSpacing:"0.02em",
+            cursor: ready ? "pointer" : "default",
+            boxShadow: ready ? `0 6px 20px ${c.accent}55` : "none",
+            transition:"all 0.25s cubic-bezier(0.34,1.4,0.64,1)",
+            transform: ready ? "translateY(0)" : "translateY(0)",
+            position:"relative",
+            overflow:"hidden",
+          }}>
+            {ready ? (
+              <span style={{ display:"inline-flex", alignItems:"center", gap:8, justifyContent:"center" }}>
+                Submit for Review
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </span>
+            ) : (
+              "Fill in the form to submit"
+            )}
+          </button>
           {getMe().founder && ready && <div style={{ textAlign:"center", fontSize:11, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif", marginTop:8, fontWeight:600 }}>Founder post — will appear in review queue</div>}
-          {!ready && <div style={{ textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:8 }}>Fill in all fields to continue</div>}
+          {ready && <div style={{ textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:8 }}>+3 reveal energy on approval</div>}
         </div>
         <div style={{ height:8 }}/>
       </div>
@@ -4203,6 +4372,159 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }
 // ─────────────────────────────────────────────────────────────────────────────
 // POST DETAIL
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMENTS + CHEERS — used inside PostDetail
+// ─────────────────────────────────────────────────────────────────────────────
+function CommentsSection({ dealId, theme, lang }) {
+  const c = TH[theme];
+  const [comments, setComments]   = useState([]);
+  const [draft, setDraft]         = useState("");
+  const [sending, setSending]     = useState(false);
+  const [cheerAnim, setCheerAnim] = useState(null); // id of comment currently animating
+  const me = fbAuth.currentUser;
+
+  useEffect(() => {
+    if (!dealId) return;
+    const unsub = fbSubscribeComments(dealId, setComments);
+    return () => unsub();
+  }, [dealId]);
+
+  const handleSend = async () => {
+    if (!me || !draft.trim() || sending) return;
+    try {
+      setSending(true);
+      const myUser = getMe();
+      await fbAddComment(dealId, me.uid, myUser.username || "Anonymous", myUser.av || "a1", draft);
+      setDraft("");
+      sfx.success();
+    } catch (e) {
+      sfx.error();
+      console.error("[BKM] add comment error:", e);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleCheer = async (commentId) => {
+    if (!me) return;
+    setCheerAnim(commentId);
+    setTimeout(() => setCheerAnim(null), 500);
+    sfx.bookmark();
+    try {
+      const myUser = getMe();
+      await fbToggleCheer(dealId, commentId, me.uid, myUser.username || "");
+    } catch(e) {}
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (!confirm("Delete this comment?")) return;
+    try { await fbDeleteComment(dealId, commentId); sfx.tap(); } catch(e) {}
+  };
+
+  const topCheer = comments.length > 0 && comments[0].cheers > 0 ? comments[0] : null;
+
+  return (
+    <div style={{ marginTop:24, paddingTop:18, borderTop:`1px solid ${c.border}` }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+        <div style={{ fontSize:14, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>
+          Comments {comments.length > 0 && <span style={{ color:c.sub, fontWeight:600, fontSize:12 }}>· {comments.length}</span>}
+        </div>
+        {comments.length > 1 && (
+          <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Sorted by cheers</span>
+        )}
+      </div>
+
+      {/* Comment list */}
+      {comments.length === 0 ? (
+        <div style={{ padding:"24px 0", textAlign:"center", color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:12 }}>
+          Be the first to comment.
+        </div>
+      ) : (
+        <div>
+          {comments.map((cm, idx) => {
+            const isTop = topCheer && cm.id === topCheer.id;
+            const cheered = Array.isArray(cm.cheeredBy) && me && cm.cheeredBy.includes(me.uid);
+            const isMine = me && cm.uid === me.uid;
+            return (
+              <div key={cm.id} style={{
+                display:"flex", gap:10,
+                padding:"11px 10px",
+                marginBottom:6,
+                borderRadius:isTop?12:0,
+                borderBottom: !isTop && idx<comments.length-1 ? `1px solid ${c.border}88` : "none",
+                background: isTop ? `linear-gradient(180deg, ${c.accent}10, transparent)` : "transparent",
+              }}>
+                <Avatar user={{ av: cm.avatar || "a1", id: cm.uid, username: cm.username || "?" }} size={28}/>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>@{cm.username || "anonymous"}</span>
+                    <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>· {formatRelativeTime(cm.createdAt) || "now"}</span>
+                    {isTop && (
+                      <span style={{ display:"inline-flex", alignItems:"center", gap:3, padding:"2px 7px", background:`linear-gradient(135deg, ${c.accent}, #FFD17A)`, color:"#FFFFFF", borderRadius:5, fontSize:9, fontWeight:800, letterSpacing:"0.05em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>
+                        ⭐ Top Cheer
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginTop:3, wordBreak:"break-word" }}>{cm.text}</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:7 }}>
+                    <button onClick={()=>handleCheer(cm.id)} disabled={!me} style={{
+                      display:"inline-flex", alignItems:"center", gap:5,
+                      padding:"4px 10px",
+                      background: cheered ? `linear-gradient(135deg, ${c.accent}, #FFD17A)` : "transparent",
+                      border: cheered ? "none" : `1px solid ${c.border}`,
+                      borderRadius:16,
+                      cursor: me ? "pointer" : "default",
+                      transition:"transform 0.15s",
+                      transform: cheerAnim===cm.id ? "scale(1.12)" : "scale(1)",
+                    }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill={cheered?"#FFFFFF":"none"} stroke={cheered?"#FFFFFF":c.sub} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                      </svg>
+                      <span style={{ fontSize:10.5, fontWeight:700, color:cheered?"#FFFFFF":c.sub, fontFamily:"'DM Sans',sans-serif" }}>{cm.cheers || 0}</span>
+                    </button>
+                    {isMine && (
+                      <button onClick={()=>handleDeleteComment(cm.id)} style={{ background:"none", border:"none", padding:"4px 8px", cursor:"pointer", fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Delete</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Compose */}
+      {me ? (
+        <div style={{ display:"flex", gap:8, marginTop:14, paddingTop:12, borderTop:`1px solid ${c.border}` }}>
+          <input
+            value={draft}
+            onChange={e=>setDraft(e.target.value.slice(0, 280))}
+            onKeyDown={e=>{ if(e.key==="Enter") handleSend(); }}
+            placeholder="Add your take..."
+            maxLength={280}
+            style={{ flex:1, padding:"10px 13px", background:c.inputBg, border:`1.5px solid ${c.inputBorder}`, borderRadius:18, fontFamily:"'DM Sans',sans-serif", fontSize:13, color:c.text, outline:"none" }}
+            onFocus={e=>e.currentTarget.style.borderColor=c.accent}
+            onBlur={e=>e.currentTarget.style.borderColor=c.inputBorder}
+          />
+          <button onClick={handleSend} disabled={!draft.trim() || sending} style={{ padding:"10px 16px", background:(draft.trim()&&!sending)?c.accent:c.muted, color:(draft.trim()&&!sending)?"#FFFFFF":c.sub, border:"none", borderRadius:16, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:800, cursor:(draft.trim()&&!sending)?"pointer":"default" }}>
+            {sending ? "..." : "Send"}
+          </button>
+        </div>
+      ) : (
+        <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${c.border}`, textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+          Sign in to comment.
+        </div>
+      )}
+      {draft.length > 240 && (
+        <div style={{ marginTop:6, textAlign:"right", fontSize:10, color:draft.length>=280?"#EF4444":c.sub, fontFamily:"'DM Sans',sans-serif" }}>{draft.length}/280</div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST DETAIL — full-page view
+// ─────────────────────────────────────────────────────────────────────────────
 function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
   const [on, setOn] = useState(false);
   const c = TH[theme];
@@ -4290,6 +4612,9 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
               </div>
             ))}
           </div>
+
+          {/* Comments + Cheers */}
+          <CommentsSection dealId={deal.id} theme={theme} lang={lang}/>
 
           {/* Post about same location */}
           <div style={{ marginTop:20 }}>
@@ -4849,6 +5174,7 @@ function ProfileSetup({ theme, lang, onComplete }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function NotificationsScreen({ notifications, theme, onBack, onMarkRead, onMarkOne }) {
   const c = TH[theme];
+  const unreadCount = notifications.filter(n => !n.read).length;
   const renderIcon = (type, color) => {
     const props = { width:18, height:18, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
     switch(type) {
@@ -4857,33 +5183,58 @@ function NotificationsScreen({ notifications, theme, onBack, onMarkRead, onMarkO
       case "follow":  return <svg {...props}><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>;
       case "approve": return <svg {...props} strokeWidth={2.6}><polyline points="20 6 9 17 4 12"/></svg>;
       case "nearby":  return <svg {...props}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>;
+      case "comment": return <svg {...props}><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>;
+      case "cheer":   return <svg {...props}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
       default:        return <svg {...props}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>;
     }
   };
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      <div style={{ padding:"12px 20px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+      {/* Header with celebratory unread count */}
+      <div style={{ padding:"14px 20px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:11 }}>
           <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
-          <span style={{ fontSize:17, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Notifications</span>
+          <div>
+            <div style={{ fontSize:17, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>Notifications</div>
+            {unreadCount > 0 && (
+              <div style={{ fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700, marginTop:1, animation:"fu 0.4s ease both" }}>
+                {unreadCount === 1 ? "1 new" : `${unreadCount} new`}
+              </div>
+            )}
+          </div>
         </div>
-        <button onClick={onMarkRead} style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Mark all read</button>
+        {unreadCount > 0 && (
+          <button onClick={onMarkRead} style={{ background:`${c.accent}15`, border:`1px solid ${c.accent}40`, borderRadius:14, padding:"6px 12px", cursor:"pointer", fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>Mark all read</button>
+        )}
       </div>
       <div style={{ flex:1, overflowY:"auto" }}>
         {notifications.length === 0 ? (
-          <div style={{ textAlign:"center", padding:"48px 24px", color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>No notifications yet</div>
+          <div style={{ textAlign:"center", padding:"60px 24px", color:c.sub, fontFamily:"'DM Sans',sans-serif", animation:"fu 0.4s ease both" }}>
+            <div style={{ width:60, height:60, borderRadius:18, background:c.muted, display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            </div>
+            <div style={{ fontSize:14, fontWeight:700, color:c.text, marginBottom:4 }}>No notifications yet</div>
+            <div style={{ fontSize:12 }}>You'll see cheers, comments, and reveal alerts here.</div>
+          </div>
         ) : notifications.map((n,i) => {
           const tone = n.read ? c.sub : c.accent;
+          // Unread notifications get a more energetic entrance — scale + slide up
+          const animStyle = n.read
+            ? { animation:`fu 0.3s ease ${i*0.04}s both` }
+            : { animation:`scaleIn 0.45s cubic-bezier(0.34,1.5,0.64,1) ${i*0.06}s both` };
           return (
-            <button key={n.id} onClick={()=>{ if (!n.read && onMarkOne) onMarkOne(n.id); }} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`${c.accent}05`, animation:`fu 0.3s ease ${i*0.04}s both`, border:"none", textAlign:"left", cursor: n.read ? "default" : "pointer", width:"100%" }}>
-              <div style={{ width:38, height:38, borderRadius:11, background:n.read?c.muted:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <button key={n.id} onClick={()=>{ if (!n.read && onMarkOne) { onMarkOne(n.id); sfx.tap(); } }} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`linear-gradient(90deg, ${c.accent}10, transparent)`, ...animStyle, border:"none", textAlign:"left", cursor: n.read ? "default" : "pointer", width:"100%", position:"relative" }}>
+              <div style={{ width:40, height:40, borderRadius:12, background:n.read?c.muted:`${c.accent}20`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, position:"relative", animation:n.read?"none":"upBurst 0.6s cubic-bezier(0.34,1.6,0.64,1) both" }}>
                 {renderIcon(n.type, tone)}
+                {!n.read && (
+                  <div style={{ position:"absolute", inset:-3, borderRadius:14, border:`2px solid ${c.accent}40`, animation:"bellPulse 1.6s ease-in-out infinite" }}/>
+                )}
               </div>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", fontWeight:n.read?400:600, lineHeight:1.4 }}>{n.text}</div>
+                <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", fontWeight:n.read?500:700, lineHeight:1.4 }}>{n.text}</div>
                 <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>{n.time}</div>
               </div>
-              {!n.read && <div style={{ width:7, height:7, borderRadius:"50%", background:c.accent, flexShrink:0 }}/>}
+              {!n.read && <div style={{ width:8, height:8, borderRadius:"50%", background:c.accent, flexShrink:0, boxShadow:`0 0 0 3px ${c.accent}30`, animation:"bellPulse 1.4s ease-in-out infinite" }}/>}
             </button>
           );
         })}
@@ -5240,6 +5591,35 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
 
       {/* List */}
       <div style={{ flex:1, overflowY:"auto", padding:"4px 16px 24px" }}>
+        {/* Your Communities — prominent quick access when user has memberships and viewing All */}
+        {filter === "all" && !search.trim() && myCommunities.size > 0 && (
+          <div style={{ marginBottom:16, padding:"14px 14px 12px", background:`linear-gradient(135deg, ${c.accent}10, ${c.accent}03)`, border:`1px solid ${c.accent}30`, borderRadius:14, ...a(0.03) }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:c.accent, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>Your Communities</div>
+              <button onClick={()=>{ sfx.tap(); setFilter("mine"); }} style={{ background:"none", border:"none", color:c.accent, fontSize:11, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", padding:0 }}>
+                See all {myCommunities.size} →
+              </button>
+            </div>
+            <div style={{ display:"flex", gap:8, overflowX:"auto", margin:"0 -14px", padding:"0 14px", scrollbarWidth:"none" }}>
+              {communities.filter(co => myCommunities.has(co.id)).slice(0, 6).map(co => {
+                const role = myCommunities.get(co.id)?.role;
+                return (
+                  <button key={co.id} onClick={()=>{ sfx.tap(); onOpenCommunity(co.id); }} style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:6, padding:"4px 0", width:74, background:"none", border:"none", cursor:"pointer" }}>
+                    <div style={{ position:"relative", width:54, height:54, borderRadius:14, background:`linear-gradient(135deg, ${c.accent}, ${c.accent}88)`, display:"flex", alignItems:"center", justifyContent:"center", color:"#FFFFFF", fontSize:20, fontWeight:800, fontFamily:"'DM Sans',sans-serif" }}>
+                      {co.name?.[0]?.toUpperCase() || "C"}
+                      {role === "owner" && (
+                        <div style={{ position:"absolute", bottom:-2, right:-2, width:18, height:18, borderRadius:"50%", background:"#FFD17A", border:`2px solid ${c.bg}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="#1C1208" stroke="none"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 3h14v2H5z"/></svg>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize:10, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", textAlign:"center", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", width:"100%" }}>{co.name}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {loading ? (
           <div style={{ textAlign:"center", padding:"60px 20px", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
         ) : filtered.length === 0 ? (
