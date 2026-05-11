@@ -461,14 +461,15 @@ const fbToggleCheer = async (dealId, commentId, uid, actorUsername) => {
   const list = Array.isArray(data.cheeredBy) ? data.cheeredBy : [];
   const has = list.includes(uid);
   if (has) {
+    // Use atomic ops to avoid race condition with concurrent cheers
     await updateDoc(ref, {
-      cheeredBy: list.filter(u => u !== uid),
-      cheers: Math.max(0, (data.cheers || 0) - 1),
+      cheeredBy: arrayRemove(uid),
+      cheers: increment(-1),
     });
   } else {
     await updateDoc(ref, {
-      cheeredBy: [...list, uid],
-      cheers: (data.cheers || 0) + 1,
+      cheeredBy: arrayUnion(uid),
+      cheers: increment(1),
     });
     // Notify comment author
     try {
@@ -605,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.9.1 · vote spam fix + comment count live";
+const APP_VERSION = "v0.9.6 · profile posts + notifications nav";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2362,6 +2363,18 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   const [showReport, setShowReport] = useState(false);
   const [claimCount, setClaimCount] = useState(deal.claims);
   useEffect(()=>{ setClaimCount(deal.claims); }, [deal.claims]);
+  // Live comment count — subscribes to comments subcollection directly.
+  // Works regardless of whether the denormalized commentCount field is up to date or not.
+  const [commentCount, setCommentCount] = useState(deal.commentCount || 0);
+  useEffect(() => {
+    if (!deal.id) return;
+    const unsub = onSnapshot(
+      collection(fbDb, "deals", deal.id, "comments"),
+      snap => setCommentCount(snap.size),
+      err => { console.warn("[BKM] comment count subscribe err:", err); }
+    );
+    return () => unsub();
+  }, [deal.id]);
   const rank      = deal.user.rank;
   const PM        = PLATFORM_META[deal.platform] || PLATFORM_META.store;
   const isFounder = deal.user.founder;
@@ -2570,23 +2583,23 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           </div>
         )}
 
-        {/* Action bar */}
+        {/* Action bar — up/down are DISPLAY-ONLY stat chips. Voting happens via the "Helpful?" strip after reveal. */}
         <div style={{ display:"flex", alignItems:"center", gap:7, position:"relative" }}>
-          <button onClick={()=>canVote && handleVote("up")} title={canVote?"Helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"default", transition:"background 0.15s, border-color 0.15s, color 0.15s", transform:upAnim?"scale(1.06)":"scale(1)", transitionProperty:"background, border-color, color, transform" }}>
+          <div title="Helpful votes" style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px" }}>
             <Ico.Up s={13} c={vote==="up"?c.accent:c.sub}/>
             <span style={{ fontSize:12, fontWeight:vote==="up"?700:400, color:vote==="up"?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{upCount}</span>
-          </button>
-          <button onClick={()=>canVote && handleVote("down")} title={canVote?"Not helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="down"?`${c.sub}18`:"transparent", border:`1px solid ${vote==="down"?c.sub:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"default", transition:"background 0.15s, border-color 0.15s, color 0.15s", transform:downAnim?"scale(0.96)":"scale(1)", transitionProperty:"background, border-color, color, transform" }}>
+          </div>
+          <div title="Not helpful votes" style={{ display:"flex", alignItems:"center", gap:4, background:vote==="down"?`${c.sub}18`:"transparent", border:`1px solid ${vote==="down"?c.sub:c.border}`, borderRadius:20, padding:"6px 12px" }}>
             <Ico.Down s={13} c={vote==="down"?c.text:c.sub}/>
             <span style={{ fontSize:12, color:vote==="down"?c.text:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{downCount}</span>
-          </button>
+          </div>
           {/* Comments — opens post detail with focus on comments */}
           <button onClick={()=>onOpenPost(deal)} title="Comments" style={{ display:"flex", alignItems:"center", gap:4, background:"transparent", border:`1px solid ${c.border}`, borderRadius:20, padding:"6px 12px", cursor:"pointer", transition:"all 0.15s" }}
             onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
             onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{deal.commentCount || 0}</span>
+            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{commentCount}</span>
           </button>
           <div style={{ flex:1 }}/>
           {/* Bookmark */}
@@ -3517,7 +3530,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE
 // ─────────────────────────────────────────────────────────────────────────────
-function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut, onNotifications, onSettings, unreadCount=0, onViewFollowing }) {
+function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut, onNotifications, onSettings, unreadCount=0, onViewFollowing, onViewFollowers, onOpenPost }) {
   const resolvedUser = userProp || getMe();
   const [on, setOn]                 = useState(false);
   const [following, setFollowing]   = useState(false);
@@ -3625,12 +3638,12 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
               </div>
             </div>
 
-            {/* Follow / Report buttons for other profiles */}
+            {/* Follow / Unfollow button for other profiles */}
             {!isOwn && (
               <div style={{ display:"flex", gap:10, marginTop:16, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
                 <button onClick={handleFollow} style={{ flex:1, padding:"11px 0", background:following?c.muted:c.accent, border:`1px solid ${following?c.border:"transparent"}`, borderRadius:12, fontSize:13, fontWeight:700, color:following?c.text:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s", animation:followAnim?"upBurst 0.45s ease both":"none", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                  {following && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                  {following?"Following":"Follow"}
+                  {following && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+                  {following?"Unfollow":"Follow"}
                 </button>
                 <button style={{ width:44, height:44, background:"transparent", border:`1px solid ${c.border}`, borderRadius:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
@@ -3646,7 +3659,7 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
                 const followingCount = isOwn ? (SESSION.following?.size || 0) : (user.following || 0);
                 return [
                   { label:"Posts",      val: realPostCount,    onClick: null },
-                  { label:"Followers",  val: user.followers||0, onClick: null },
+                  { label:"Followers",  val: user.followers||0, onClick: onViewFollowers || null },
                   { label:"Following",  val: followingCount,   onClick: isOwn ? onViewFollowing : null },
                   { label:"Total Ups",  val: totalUps,         onClick: null },
                 ];
@@ -3709,15 +3722,19 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
           )}
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {myDeals.map(deal=>(
-              <div key={deal.id} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"12px 14px" }}>
+              <button key={deal.id} onClick={()=>onOpenPost && onOpenPost(deal)} style={{ width:"100%", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"12px 14px", cursor:"pointer", textAlign:"left", transition:"all 0.15s" }}
+                onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"66"}
+                onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
+              >
                 <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  <img src={deal.img} alt="" style={{ width:44, height:44, borderRadius:10, objectFit:"cover", flexShrink:0 }} onError={e=>e.target.style.display="none"}/>
+                  {deal.img && <img src={deal.img} alt="" style={{ width:44, height:44, borderRadius:10, objectFit:"cover", flexShrink:0 }} onError={e=>e.target.style.display="none"}/>}
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{deal.subject.slice(0,55)}...</div>
-                    <div style={{ fontSize:11, color:c.sub, marginTop:3, fontFamily:"'DM Sans',sans-serif" }}>{deal.district} · {deal.ups} up · {deal.claims} claims</div>
+                    <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{(deal.subject||"").slice(0,55)}{deal.subject && deal.subject.length>55?"...":""}</div>
+                    <div style={{ fontSize:11, color:c.sub, marginTop:3, fontFamily:"'DM Sans',sans-serif" }}>{deal.district} · {deal.ups||0} up · {deal.claims||0} revealed</div>
                   </div>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, opacity:0.6 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -3815,17 +3832,58 @@ function LocationPage({ district, theme, lang, onBack, onUserTap }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function FollowingList({ theme, lang, onBack, onUserTap }) {
   const c = TH[theme];
-  // Build the list from SESSION.following + USERS lookup
-  const [followingIds, setFollowingIds] = useState(Array.from(SESSION.following));
+  const [followingIds, setFollowingIds] = useState([]);
+  const [users, setUsers]               = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const me = fbAuth.currentUser;
 
-  const unfollow = (id) => {
-    SESSION.following.delete(id);
-    setFollowingIds(Array.from(SESSION.following));
+  // Subscribe to live follow set
+  useEffect(() => {
+    if (!me) { setLoading(false); return; }
+    const unsub = fbSubscribeUserFollows(me.uid, (s) => {
+      setFollowingIds(Array.from(s));
+    });
+    return () => unsub();
+  }, [me]);
+
+  // Resolve each follow ID into a full user doc
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!followingIds.length) { setUsers([]); setLoading(false); return; }
+      setLoading(true);
+      try {
+        const docs = await Promise.all(followingIds.map(async (uid) => {
+          try {
+            const snap = await getDoc(doc(fbDb, "users", uid));
+            if (!snap.exists()) return null;
+            const d = snap.data();
+            return {
+              id: uid, uid,
+              username: d.username || "user",
+              av: d.avatar || "a1",
+              rank: d.rank || 0,
+              founder: !!d.isFounder,
+              followers: d.followers || 0,
+            };
+          } catch(e) { return null; }
+        }));
+        if (!cancelled) {
+          setUsers(docs.filter(Boolean));
+          setLoading(false);
+        }
+      } catch(e) {
+        if (!cancelled) { setUsers([]); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [followingIds.join(",")]);
+
+  const handleUnfollow = async (targetUid) => {
+    if (!me) return;
+    sfx.tap();
+    try { await fbToggleFollow(me.uid, targetUid); } catch(e) {}
   };
-
-  const followingUsers = followingIds
-    .map(id => USERS.find(u => u.id === id) || (id===0 ? getMe() : null))
-    .filter(Boolean);
 
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -3833,12 +3891,14 @@ function FollowingList({ theme, lang, onBack, onUserTap }) {
         <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
         <div>
           <div style={{ fontSize:16, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>Following</div>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{followingUsers.length} {followingUsers.length===1?"person":"people"}</div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{users.length} {users.length===1?"person":"people"}</div>
         </div>
       </div>
 
       <div style={{ flex:1, overflowY:"auto", padding:"14px 16px 24px" }}>
-        {followingUsers.length === 0 ? (
+        {loading ? (
+          <div style={{ textAlign:"center", padding:"40px 24px", color:c.sub, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
+        ) : users.length === 0 ? (
           <div style={{ textAlign:"center", padding:"60px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:14 }}>
             <div style={{ width:60, height:60, borderRadius:18, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
@@ -3850,21 +3910,136 @@ function FollowingList({ theme, lang, onBack, onUserTap }) {
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {followingUsers.map(u => (
+            {users.map(u => (
               <div key={u.id} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, padding:"10px 12px", display:"flex", alignItems:"center", gap:12 }}>
                 <button onClick={()=>onUserTap && onUserTap(u)} style={{ display:"flex", alignItems:"center", gap:10, flex:1, background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
                   <Avatar user={u} size={38}/>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{u.username}</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>@{u.username}</span>
                       <TierBadge user={u} size="sm"/>
                     </div>
-                    <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.caption || `${u.followers||0} followers`}</div>
+                    <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{u.followers||0} followers</div>
                   </div>
                 </button>
-                <button onClick={()=>unfollow(u.id)} style={{ padding:"7px 14px", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:9, fontSize:11, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Unfollow</button>
+                <button onClick={()=>handleUnfollow(u.uid)} style={{ padding:"7px 14px", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:9, fontSize:11, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Unfollow</button>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// FOLLOWERS SCREEN — who follows me / a user (named differently from the merchant FollowersList)
+function FollowersScreen({ uid, theme, lang, onBack, onUserTap }) {
+  const c = TH[theme];
+  const [followerIds, setFollowerIds] = useState([]);
+  const [users, setUsers]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const me = fbAuth.currentUser;
+  const isOwnList = me && uid === me.uid;
+
+  // Subscribe to followers
+  useEffect(() => {
+    if (!uid) { setLoading(false); return; }
+    const unsub = fbSubscribeFollowers(uid, (list) => {
+      setFollowerIds(list.map(f => f.uid));
+    });
+    return () => unsub();
+  }, [uid]);
+
+  // My own follows — needed to render correct button (Follow / Unfollow)
+  const [myFollows, setMyFollows] = useState(new Set());
+  useEffect(() => {
+    if (!me) return;
+    const unsub = fbSubscribeUserFollows(me.uid, setMyFollows);
+    return () => unsub();
+  }, [me]);
+
+  // Resolve each follower ID to user data
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!followerIds.length) { setUsers([]); setLoading(false); return; }
+      setLoading(true);
+      try {
+        const docs = await Promise.all(followerIds.map(async (id) => {
+          try {
+            const snap = await getDoc(doc(fbDb, "users", id));
+            if (!snap.exists()) return null;
+            const d = snap.data();
+            return {
+              id, uid: id,
+              username: d.username || "user",
+              av: d.avatar || "a1",
+              rank: d.rank || 0,
+              founder: !!d.isFounder,
+              followers: d.followers || 0,
+            };
+          } catch(e) { return null; }
+        }));
+        if (!cancelled) { setUsers(docs.filter(Boolean)); setLoading(false); }
+      } catch(e) {
+        if (!cancelled) { setUsers([]); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [followerIds.join(",")]);
+
+  const handleToggleFollow = async (targetUid) => {
+    if (!me) return;
+    sfx.tap();
+    try { await fbToggleFollow(me.uid, targetUid); } catch(e) {}
+  };
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${c.border}`, flexShrink:0, display:"flex", alignItems:"center", gap:12 }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
+        <div>
+          <div style={{ fontSize:16, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>Followers</div>
+          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{users.length} {users.length===1?"person":"people"}</div>
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"14px 16px 24px" }}>
+        {loading ? (
+          <div style={{ textAlign:"center", padding:"40px 24px", color:c.sub, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
+        ) : users.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"60px 24px", display:"flex", flexDirection:"column", alignItems:"center", gap:14 }}>
+            <div style={{ width:60, height:60, borderRadius:18, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div>
+              <div style={{ fontSize:15, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>{isOwnList?"No followers yet":"No followers yet"}</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, maxWidth:240 }}>{isOwnList?"Post helpful deals and they'll come.":"This user has no followers yet."}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {users.map(u => {
+              const iFollow = myFollows.has(u.uid);
+              const isSelf  = me && u.uid === me.uid;
+              return (
+                <div key={u.id} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, padding:"10px 12px", display:"flex", alignItems:"center", gap:12 }}>
+                  <button onClick={()=>onUserTap && onUserTap(u)} style={{ display:"flex", alignItems:"center", gap:10, flex:1, background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>
+                    <Avatar user={u} size={38}/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                        <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>@{u.username}</span>
+                        <TierBadge user={u} size="sm"/>
+                      </div>
+                      <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{u.followers||0} followers</div>
+                    </div>
+                  </button>
+                  {!isSelf && (
+                    <button onClick={()=>handleToggleFollow(u.uid)} style={{ padding:"7px 14px", background:iFollow?"transparent":c.accent, border:`1.5px solid ${iFollow?c.border:"transparent"}`, borderRadius:9, fontSize:11, fontWeight:700, color:iFollow?c.sub:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>{iFollow?"Unfollow":"Follow"}</button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -4387,9 +4562,6 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST DETAIL
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
 // COMMENTS + CHEERS — used inside PostDetail
 // ─────────────────────────────────────────────────────────────────────────────
 function CommentsSection({ dealId, theme, lang }) {
@@ -4512,23 +4684,23 @@ function CommentsSection({ dealId, theme, lang }) {
 
       {/* Compose */}
       {me ? (
-        <div style={{ display:"flex", gap:8, marginTop:14, paddingTop:12, borderTop:`1px solid ${c.border}` }}>
+        <div style={{ display:"flex", gap:8, marginTop:16, padding:"12px", background:c.muted, borderRadius:16 }}>
           <input
             value={draft}
             onChange={e=>setDraft(e.target.value.slice(0, 280))}
             onKeyDown={e=>{ if(e.key==="Enter") handleSend(); }}
             placeholder="Add your take..."
             maxLength={280}
-            style={{ flex:1, padding:"10px 13px", background:c.inputBg, border:`1.5px solid ${c.inputBorder}`, borderRadius:18, fontFamily:"'DM Sans',sans-serif", fontSize:13, color:c.text, outline:"none" }}
+            style={{ flex:1, padding:"10px 14px", background:c.bg, border:`1.5px solid ${c.inputBorder}`, borderRadius:18, fontFamily:"'DM Sans',sans-serif", fontSize:13, color:c.text, outline:"none", WebkitAppearance:"none", appearance:"none" }}
             onFocus={e=>e.currentTarget.style.borderColor=c.accent}
             onBlur={e=>e.currentTarget.style.borderColor=c.inputBorder}
           />
-          <button onClick={handleSend} disabled={!draft.trim() || sending} style={{ padding:"10px 16px", background:(draft.trim()&&!sending)?c.accent:c.muted, color:(draft.trim()&&!sending)?"#FFFFFF":c.sub, border:"none", borderRadius:16, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:800, cursor:(draft.trim()&&!sending)?"pointer":"default" }}>
+          <button onClick={handleSend} disabled={!draft.trim() || sending} style={{ padding:"10px 16px", background:(draft.trim()&&!sending)?c.accent:c.border, color:(draft.trim()&&!sending)?"#FFFFFF":c.sub, border:"none", borderRadius:16, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:800, cursor:(draft.trim()&&!sending)?"pointer":"default", transition:"background 0.2s" }}>
             {sending ? "..." : "Send"}
           </button>
         </div>
       ) : (
-        <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${c.border}`, textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+        <div style={{ marginTop:16, padding:"14px", background:c.muted, borderRadius:14, textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
           Sign in to comment.
         </div>
       )}
@@ -5189,9 +5361,18 @@ function ProfileSetup({ theme, lang, onComplete }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // NOTIFICATIONS SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
-function NotificationsScreen({ notifications, theme, onBack, onMarkRead, onMarkOne }) {
+function NotificationsScreen({ notifications, theme, onBack, onMarkRead, onMarkOne, onOpenNotification }) {
   const c = TH[theme];
   const unreadCount = notifications.filter(n => !n.read).length;
+  // Auto-mark all as read on mount — user opened the screen so they've "seen" them.
+  // Captures unread state at mount time so user sees the visual unread markers briefly before they clear.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (notifications.filter(n => !n.read).length > 0 && onMarkRead) onMarkRead();
+    }, 700);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const renderIcon = (type, color) => {
     const props = { width:18, height:18, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
     switch(type) {
@@ -5240,7 +5421,11 @@ function NotificationsScreen({ notifications, theme, onBack, onMarkRead, onMarkO
             ? { animation:`fu 0.3s ease ${i*0.04}s both` }
             : { animation:`scaleIn 0.45s cubic-bezier(0.34,1.5,0.64,1) ${i*0.06}s both` };
           return (
-            <button key={n.id} onClick={()=>{ if (!n.read && onMarkOne) { onMarkOne(n.id); sfx.tap(); } }} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`linear-gradient(90deg, ${c.accent}10, transparent)`, ...animStyle, border:"none", textAlign:"left", cursor: n.read ? "default" : "pointer", width:"100%", position:"relative" }}>
+            <button key={n.id} onClick={()=>{
+              if (!n.read && onMarkOne) onMarkOne(n.id);
+              sfx.tap();
+              if (onOpenNotification) onOpenNotification(n);
+            }} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 20px", borderBottom:`1px solid ${c.border}`, background:n.read?"transparent":`linear-gradient(90deg, ${c.accent}10, transparent)`, ...animStyle, border:"none", textAlign:"left", cursor:"pointer", width:"100%", position:"relative" }}>
               <div style={{ width:40, height:40, borderRadius:12, background:n.read?c.muted:`${c.accent}20`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, position:"relative", animation:n.read?"none":"upBurst 0.6s cubic-bezier(0.34,1.6,0.64,1) both" }}>
                 {renderIcon(n.type, tone)}
                 {!n.read && (
@@ -6386,16 +6571,73 @@ export default function BKMApp() {
 
   const renderTab = () => {
     if (pushedScreen?.type==="location")      return <LocationPage district={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>push("user",u)}/>;
-    if (pushedScreen?.type==="user")          return <Profile user={pushedScreen.data} theme={theme} lang={lang} onBack={pop} showBack/>;
+    if (pushedScreen?.type==="user")          return <Profile user={pushedScreen.data} theme={theme} lang={lang} onBack={pop} showBack onViewFollowers={()=>push("followers", pushedScreen.data.uid || pushedScreen.data.id)} onOpenPost={d=>push("post",d)}/>;
     if (pushedScreen?.type==="post")          return <PostDetail deal={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}/>;
-    if (pushedScreen?.type==="notifications") return <NotificationsScreen notifications={notifications} theme={theme} onBack={pop} onMarkRead={markAllRead} onMarkOne={markOneRead}/>;
+    if (pushedScreen?.type==="notifications") return <NotificationsScreen
+      notifications={notifications}
+      theme={theme}
+      onBack={pop}
+      onMarkRead={markAllRead}
+      onMarkOne={markOneRead}
+      onOpenNotification={async (n) => {
+        // Navigate based on notification type to the most relevant content
+        try {
+          // For deal-related notifications, fetch the deal and open the post detail
+          if (n.dealId && ["reveal","upvote","comment","cheer","approve"].includes(n.type)) {
+            const snap = await getDoc(doc(fbDb, "deals", n.dealId));
+            if (snap.exists()) {
+              const dealData = { id: snap.id, ...snap.data() };
+              // Normalize a `user` object on the deal so PostDetail rendering works
+              if (!dealData.user && dealData.userId) {
+                try {
+                  const userSnap = await getDoc(doc(fbDb, "users", dealData.userId));
+                  if (userSnap.exists()) {
+                    const u = userSnap.data();
+                    dealData.user = {
+                      id: dealData.userId, uid: dealData.userId,
+                      username: u.username || "user",
+                      av: u.avatar || "a1",
+                      rank: u.rank || 0,
+                      founder: !!u.isFounder,
+                    };
+                  }
+                } catch(e) {}
+              }
+              pop();
+              push("post", dealData);
+              return;
+            }
+          }
+          // For follow notifications, open the follower's profile
+          if (n.type === "follow" && n.actorUid) {
+            try {
+              const userSnap = await getDoc(doc(fbDb, "users", n.actorUid));
+              if (userSnap.exists()) {
+                const u = userSnap.data();
+                pop();
+                push("user", {
+                  id: n.actorUid, uid: n.actorUid,
+                  username: u.username || "user",
+                  av: u.avatar || "a1",
+                  rank: u.rank || 0,
+                  founder: !!u.isFounder,
+                  followers: u.followers || 0,
+                });
+                return;
+              }
+            } catch(e) {}
+          }
+        } catch(e) { console.warn("[BKM] open notification nav failed:", e); }
+      }}
+    />;
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
+    if (pushedScreen?.type==="followers")     return <FollowersScreen uid={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
     if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin} onNotifications={()=>push("notifications",null)} unreadCount={unreadCount}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
-    if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)}/>;
+    if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)} onViewFollowers={()=>{ const me = fbAuth.currentUser; if (me) push("followers", me.uid); }} onOpenPost={d=>push("post",d)}/>;
     if (tab==="dev")     return <ErrorBoundary><DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject} onSignOut={signOut}/></ErrorBoundary>;
   };
 
