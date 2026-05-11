@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.9.7 · post normalize + press feedback";
+const APP_VERSION = "v0.9.8 · live followers count";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3564,6 +3564,21 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
     return () => unsub();
   }, [targetUid]);
 
+  // Live followers count — subscribes directly to the followers subcollection.
+  // The denormalized `user.followers` field can lag because Firestore rules
+  // don't allow a follower to update the target user's doc (only owner can).
+  // Reading the subcollection size is always accurate and works for any user.
+  const [liveFollowersCount, setLiveFollowersCount] = useState(user.followers || 0);
+  useEffect(() => {
+    if (!targetUid) return;
+    const unsub = onSnapshot(
+      collection(fbDb, "users", targetUid, "followers"),
+      snap => setLiveFollowersCount(snap.size),
+      err => { console.warn("[BKM] followers count subscribe err:", err); }
+    );
+    return () => unsub();
+  }, [targetUid]);
+
   const a = d => on?{animation:`fu .45s ease ${d}s both`}:{opacity:0};
   const rank = RANKS[user.rank];
 
@@ -3659,7 +3674,7 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
                 const followingCount = isOwn ? (SESSION.following?.size || 0) : (user.following || 0);
                 return [
                   { label:"Posts",      val: realPostCount,    onClick: null },
-                  { label:"Followers",  val: user.followers||0, onClick: onViewFollowers || null },
+                  { label:"Followers",  val: liveFollowersCount, onClick: onViewFollowers || null },
                   { label:"Following",  val: followingCount,   onClick: isOwn ? onViewFollowing : null },
                   { label:"Total Ups",  val: totalUps,         onClick: null },
                 ];
