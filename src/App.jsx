@@ -503,7 +503,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.7.4 · setup escape hatch";
+const APP_VERSION = "v0.8.0 · feed UX overhaul";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -524,7 +524,7 @@ class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
-const MAX_ENERGY      = 10;
+const MAX_ENERGY      = 999;               // effectively uncapped — energy refills and accumulates
 const REFILL_INTERVAL = 2 * 60 * 60 * 1000; // 1 reveal every 2 hours
 const SHARE_BONUS_CAP = 3;                  // Max +3/day from sharing
 
@@ -704,17 +704,26 @@ const playTone = (freq, durationMs, type="sine", peakGain=0.07, freqEnd=null) =>
   } catch(e){}
 };
 
+// Haptic feedback — wraps Web Vibration API. iOS Safari ignores this silently (no support),
+// Android browsers buzz briefly. Calling it costs nothing on unsupported devices.
+const haptic = (pattern) => {
+  try {
+    if (!SESSION.soundEnabled) return; // respect the sound/haptic toggle
+    if (navigator.vibrate) navigator.vibrate(pattern);
+  } catch(e) {}
+};
+
 const sfx = {
-  reveal:    () => { playTone(800, 90, "sine", 0.10, 1400); setTimeout(()=>playTone(1500, 70, "sine", 0.06), 90); },
-  earn:      () => { [800,1000,1300].forEach((f,i)=>setTimeout(()=>playTone(f, 60, "triangle", 0.07), i*55)); },
-  voteUp:    () => playTone(700, 80, "sine", 0.08, 950),
-  voteDown:  () => playTone(380, 100, "sine", 0.07, 280),
-  bookmark:  () => playTone(1500, 50, "sine", 0.06),
-  success:   () => { [523,659,784].forEach((f,i)=>setTimeout(()=>playTone(f, 90, "triangle", 0.06), i*65)); },
-  error:     () => playTone(380, 180, "sine", 0.05, 250),
-  tap:       () => playTone(1800, 14, "sine", 0.025),
-  streak:    () => { [659,784,988,1175].forEach((f,i)=>setTimeout(()=>playTone(f, 80, "triangle", 0.07), i*70)); },
-  whoosh:    () => playTone(2200, 60, "sine", 0.04, 800),
+  reveal:    () => { playTone(800, 90, "sine", 0.10, 1400); setTimeout(()=>playTone(1500, 70, "sine", 0.06), 90); haptic([8, 30, 14]); },
+  earn:      () => { [800,1000,1300].forEach((f,i)=>setTimeout(()=>playTone(f, 60, "triangle", 0.07), i*55)); haptic([6,30,6,30,12]); },
+  voteUp:    () => { playTone(700, 80, "sine", 0.08, 950); haptic(10); },
+  voteDown:  () => { playTone(380, 100, "sine", 0.07, 280); haptic(12); },
+  bookmark:  () => { playTone(1500, 50, "sine", 0.06); haptic(8); },
+  success:   () => { [523,659,784].forEach((f,i)=>setTimeout(()=>playTone(f, 90, "triangle", 0.06), i*65)); haptic([6,40,10]); },
+  error:     () => { playTone(380, 180, "sine", 0.05, 250); haptic([18, 60, 18]); },
+  tap:       () => { playTone(1800, 14, "sine", 0.025); haptic(4); },
+  streak:    () => { [659,784,988,1175].forEach((f,i)=>setTimeout(()=>playTone(f, 80, "triangle", 0.07), i*70)); haptic([6,40,6,40,6,40,16]); },
+  whoosh:    () => { playTone(2200, 60, "sine", 0.04, 800); haptic(5); },
 };
 
 const getMe = () => CURRENT_USER || ME;
@@ -805,7 +814,8 @@ const RANK_LABELS = ["Scout","Finder","Hunter","Tracker","Elite"];
 const RANK_COLORS = ["#A0907A","#6B5B4A","#8B0038","#FFFFFF","#FFFFFF"];
 
 // Qatar districts
-const AREAS = ["The Pearl","West Bay","Lusail","Al Waab","Msheireb","Al Hilal","Madinat Khalifa","Al Sadd","Old Airport","Al Wakra"];
+// "Doha, Qatar" is a mega-location — represents the whole city. Used as a country-wide aggregator/default.
+const AREAS = ["Doha, Qatar","The Pearl","West Bay","Lusail","Al Waab","Msheireb","Al Hilal","Madinat Khalifa","Al Sadd","Old Airport","Al Wakra"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIER BADGE — Option B (BKM Brand Ladder)
@@ -830,6 +840,9 @@ const FOUNDER_STYLE = { background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", co
 function TierBadge({ user, size="sm" }) {
   const isFounder = user?.founder;
   const tier = user?.rank ?? 0;
+  // Hide tier badge for "Scout" (tier 0) — it's the default state and doesn't communicate anything earned.
+  // Founder always shows.
+  if (!isFounder && tier === 0) return null;
   const style = isFounder ? FOUNDER_STYLE : TIER_STYLES[Math.max(0, Math.min(4, tier))];
   const label = isFounder ? "FOUNDER" : (RANK_LABELS[tier] || "Scout").toUpperCase();
   const dims = size === "sm"
@@ -866,12 +879,12 @@ function getRingStyle(tier) {
 // DATA
 // ─────────────────────────────────────────────────────────────────────────────
 const CATS = [
-  { key:"food",        label:"Food"        },
-  { key:"groceries",   label:"Groceries"   },
-  { key:"stores",      label:"Stores"      },
-  { key:"electronics", label:"Electronics" },
-  { key:"flowers",     label:"Flowers"     },
-  { key:"pharmacies",  label:"Pharmacies"  },
+  { key:"food",        label:"Food",        emoji:"🍔" },
+  { key:"groceries",   label:"Groceries",   emoji:"🛒" },
+  { key:"stores",      label:"Stores",      emoji:"🛍️" },
+  { key:"electronics", label:"Electronics", emoji:"📱" },
+  { key:"flowers",     label:"Flowers",     emoji:"🌷" },
+  { key:"pharmacies",  label:"Pharmacies",  emoji:"💊" },
 ];
 
 const PLATFORMS = {
@@ -1312,10 +1325,10 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
 // ONBOARDING — Full-screen Top 10 interest ranking poll
 // ─────────────────────────────────────────────────────────────────────────────
 const ALL_INTERESTS = [
-  "Food & Dining","Groceries","Electronics","Fashion & Clothing",
-  "Pharmacies","Coffee & Cafes","Flowers & Gifts","Gaming",
-  "Sports & Fitness","Beauty & Wellness","Home & Living","Books",
-  "Automotive","Pet Supplies","Kids & Baby","Jewelry","Entertainment","Travel",
+  "🍔 Food & Dining","🛒 Groceries","📱 Electronics","👗 Fashion & Clothing",
+  "💊 Pharmacies","☕ Coffee & Cafes","🌷 Flowers & Gifts","🎮 Gaming",
+  "🏋️ Sports & Fitness","💆 Beauty & Wellness","🛋️ Home & Living","📚 Books",
+  "🚗 Automotive","🐾 Pet Supplies","🧸 Kids & Baby","💍 Jewelry","🎬 Entertainment","✈️ Travel",
 ];
 
 function Onboarding({ theme, onComplete }) {
@@ -2258,7 +2271,8 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
     if (!limitReached) {
       setPriceAnim(true);
       setRevealAnim(true);
-      setTimeout(() => setPriceAnim(false), 700);
+      // Run animation for ~1.2s total (gold sweep + digit pop sequence + glow)
+      setTimeout(() => setPriceAnim(false), 1200);
       setTimeout(() => setRevealAnim(false), 500);
     }
   };
@@ -2278,6 +2292,10 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 
   const upCount   = deal.ups;
   const downCount = deal.downs;
+  // Own posts are auto-revealed — no need to spend energy to see your own price
+  const effectiveClaimed = claimed || isOwn;
+  // Vote buttons enabled only after reveal (or if it's your own post)
+  const canVote = effectiveClaimed;
 
   return (
     <RankCard tier={rank} c={c} founder={isFounder} hasTopBanner={!!(postBanner || isOwn)}>
@@ -2335,8 +2353,8 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
         {/* Subject */}
         <p style={{ fontSize:13, fontWeight:500, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.55, margin:"0 0 11px 0" }}>{deal.subject}</p>
 
-        {/* Reveal / revealed */}
-        {!claimed ? (
+        {/* Reveal / revealed — own posts auto-reveal */}
+        {!effectiveClaimed ? (
           <div style={{ marginBottom:11 }}>
             <button onClick={handleClaim} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:10, background:limitReached?c.muted:c.accent, border:limitReached?`1px dashed ${c.border}`:"none", borderRadius:12, padding:"14px 0", cursor:"pointer", boxShadow:limitReached?"none":`0 4px 20px ${c.accent}44`, transition:"transform 0.12s, box-shadow 0.12s", animation:revealAnim?"upBurst 0.4s ease both":"none" }}
               onMouseOver={e=>{ if(!limitReached){ e.currentTarget.style.transform="scale(1.02)"; e.currentTarget.style.boxShadow=`0 8px 28px ${c.accent}66`; } }}
@@ -2360,14 +2378,49 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           </div>
         ) : (
           <button onClick={()=>onOpenPost(deal)} style={{ width:"100%", textAlign:"left", background:"none", border:"none", padding:0, cursor:"pointer", marginBottom:11 }}>
-            <div style={{ background:c.muted, borderRadius:12, padding:"12px 14px", animation:priceAnim?"priceReveal 0.6s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
+            {/* Price block — ticket style with perforated cutouts + gold-sweep on reveal */}
+            <div style={{
+              background:c.muted, borderRadius:12, padding:"12px 14px",
+              position:"relative", overflow:"hidden",
+              border:`1px dashed ${c.border}`,
+              animation:priceAnim?"priceReveal 0.6s cubic-bezier(0.34,1.56,0.64,1) both":"none",
+            }}>
+              {/* Gold sweep — sweeps L→R during reveal */}
+              {priceAnim && (
+                <div style={{
+                  position:"absolute", inset:0, pointerEvents:"none", overflow:"hidden",
+                }}>
+                  <div style={{
+                    position:"absolute", top:0, bottom:0, left:0, width:"60%",
+                    background:"linear-gradient(90deg, transparent, rgba(255,209,122,0.55) 40%, rgba(255,209,122,0.85) 50%, rgba(255,209,122,0.55) 60%, transparent)",
+                    animation:"goldSweep 1s cubic-bezier(0.4,0,0.2,1) both",
+                  }}/>
+                </div>
+              )}
+              {/* Perforated ticket cutouts on left/right edges */}
+              <div style={{ position:"absolute", left:-7, top:"50%", transform:"translateY(-50%)", width:14, height:14, background:c.bg, borderRadius:"50%" }}/>
+              <div style={{ position:"absolute", right:-7, top:"50%", transform:"translateY(-50%)", width:14, height:14, background:c.bg, borderRadius:"50%" }}/>
+
               {deal.items.map((item,i) => (
-                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:i>0?8:0, marginTop:i>0?8:0, borderTop:i>0?`1px solid ${c.border}`:"none" }}>
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:i>0?8:0, marginTop:i>0?8:0, borderTop:i>0?`1px solid ${c.border}`:"none", position:"relative", zIndex:1 }}>
                   <span style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.n}</span>
-                  <span style={{ fontSize:16, fontWeight:800, color:c.accent, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>QAR {Number(item.p).toFixed(2)}</span>
+                  <span style={{
+                    fontSize:16, fontWeight:800, color:c.accent,
+                    fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em",
+                    display:"inline-flex", alignItems:"baseline", gap:0,
+                  }}>
+                    QAR&nbsp;
+                    {/* Each digit gets its own pop-in animation (only when priceAnim true) */}
+                    {Number(item.p).toFixed(2).split("").map((ch, di) => (
+                      <span key={di} style={{
+                        display:"inline-block",
+                        animation: priceAnim ? `digitPop 0.45s cubic-bezier(0.34,1.6,0.64,1) ${0.35 + di*0.07}s both` : "none",
+                      }}>{ch}</span>
+                    ))}
+                  </span>
                 </div>
               ))}
-              <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", position:"relative", zIndex:1 }}>
                 <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Tap to see full post + map</span>
                 <span style={{ fontSize:11, color:c.accent, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>View →</span>
               </div>
@@ -2395,8 +2448,8 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           </button>
         )}
 
-        {/* Post-reveal action strip — appears after a reveal */}
-        {claimed && (
+        {/* Post-reveal action strip — appears after a reveal (or for own posts) */}
+        {effectiveClaimed && !isOwn && (
           <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:10, padding:"8px 10px", background:`${c.accent}08`, border:`1px dashed ${c.accent}33`, borderRadius:12, animation:"slideDown 0.35s cubic-bezier(0.34,1.2,0.64,1) both" }}>
             <span style={{ fontSize:10, fontWeight:700, color:c.accent, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap", marginRight:2 }}>Helpful?</span>
             <button onClick={()=>handleVote("up")} title="Yes, helpful" style={{ width:30, height:30, background:vote==="up"?c.accent:"transparent", border:`1.5px solid ${vote==="up"?c.accent:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
@@ -2417,11 +2470,11 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 
         {/* Action bar */}
         <div style={{ display:"flex", alignItems:"center", gap:7, position:"relative" }}>
-          <button onClick={()=>handleVote("up")} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px", cursor:"pointer", transition:"all 0.15s", animation:upAnim?"upBurst 0.55s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
+          <button onClick={()=>canVote && handleVote("up")} disabled={!canVote} title={canVote?"Helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"not-allowed", opacity:canVote?1:0.45, transition:"all 0.15s", animation:upAnim?"upBurst 0.55s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
             <Ico.Up s={13} c={vote==="up"?c.accent:c.sub}/>
             <span style={{ fontSize:12, fontWeight:vote==="up"?700:400, color:vote==="up"?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", transition:"color 0.15s" }}>{upCount}</span>
           </button>
-          <button onClick={()=>handleVote("down")} style={{ display:"flex", alignItems:"center", gap:4, background:"transparent", border:`1px solid ${c.border}`, borderRadius:20, padding:"6px 12px", cursor:"pointer", transition:"all 0.15s", animation:downAnim?"downSink 0.45s ease both":"none" }}>
+          <button onClick={()=>canVote && handleVote("down")} disabled={!canVote} title={canVote?"Not helpful":"Reveal first to vote"} style={{ display:"flex", alignItems:"center", gap:4, background:vote==="down"?`${c.sub}18`:"transparent", border:`1px solid ${vote==="down"?c.sub:c.border}`, borderRadius:20, padding:"6px 12px", cursor:canVote?"pointer":"not-allowed", opacity:canVote?1:0.45, transition:"all 0.15s", animation:downAnim?"downSink 0.45s ease both":"none" }}>
             <Ico.Down s={13} c={vote==="down"?c.text:c.sub}/>
             <span style={{ fontSize:12, color:vote==="down"?c.text:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{downCount}</span>
           </button>
@@ -2687,12 +2740,14 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
     if (pullDist > 60) {
       setRefreshing(true);
       setPullDist(60);
+      sfx.tap();
+      // Reset to the latest prop value — since subscription is live, this surfaces any newly-arrived deals
+      // and reapplies default ordering instead of any client-side filter mutation
       setTimeout(() => {
         setRefreshing(false);
         setPullDist(0);
-        // Re-shuffle deals slightly to feel "refreshed"
-        setDeals(ds => [...ds].sort(()=>Math.random()-0.5));
-      }, 900);
+        setDeals(initialDeals || []);
+      }, 700);
     } else {
       setPullDist(0);
     }
@@ -2791,8 +2846,11 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
     // Personalized For You ranking based on interests (only when no specific category)
     if (feedFilter === "foryou" && interests.length > 0 && activeCat==="all") {
       const catMap = { food:"Food & Dining", groceries:"Groceries", stores:"Fashion & Clothing", electronics:"Electronics", flowers:"Flowers & Gifts", pharmacies:"Pharmacies" };
-      const prioritised = base.filter(d => interests.includes(catMap[d.cat]));
-      const rest = base.filter(d => !interests.includes(catMap[d.cat]));
+      // Strip leading emoji from interests so the catMap lookup still matches
+      const stripEmoji = (s) => (s || "").replace(/^[\p{Extended_Pictographic}\u200d\uFE0F\s]+/u, "").trim();
+      const interestSet = new Set(interests.map(stripEmoji));
+      const prioritised = base.filter(d => interestSet.has(catMap[d.cat]));
+      const rest = base.filter(d => !interestSet.has(catMap[d.cat]));
       base = [...prioritised, ...rest];
     }
     return base;
@@ -3393,13 +3451,18 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
 
             {/* Stats */}
             <div style={{ display:"flex", marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
-              {[
-                { label:"Posts",      val: user.deals,                                              onClick:null },
-                { label:"Followers",  val: user.followers,                                          onClick:null },
-                { label:"Following",  val: isOwn ? SESSION.following.size : (user.following||0),    onClick: isOwn ? onViewFollowing : null },
-                { label:"Total Ups",  val: user.deals>0 ? user.deals*12 : 0,                        onClick:null },
-              ].map((s,i)=>(
-                <button key={i} onClick={s.onClick||undefined} disabled={!s.onClick} style={{ flex:1, textAlign:"center", borderRight:i<3?`1px solid ${c.border}`:"none", background:"transparent", border:"none", padding:"4px 0", cursor:s.onClick?"pointer":"default", borderTop:"none", borderBottom:"none", borderLeft:"none" }}>
+              {(() => {
+                const realPostCount = myDeals.length;
+                const totalUps      = myDeals.reduce((sum, d) => sum + (d.ups || 0), 0);
+                const followingCount = isOwn ? (userFollows?.size ?? SESSION.following.size) : (user.following||0);
+                return [
+                  { label:"Posts",      val: realPostCount,    onClick: null },
+                  { label:"Followers",  val: user.followers||0, onClick: null },
+                  { label:"Following",  val: followingCount,   onClick: isOwn ? onViewFollowing : null },
+                  { label:"Total Ups",  val: totalUps,         onClick: null },
+                ];
+              })().map((s,i,arr)=>(
+                <button key={i} onClick={s.onClick||undefined} disabled={!s.onClick} style={{ flex:1, textAlign:"center", borderRight:i<arr.length-1?`1px solid ${c.border}`:"none", background:"transparent", border:"none", padding:"4px 0", cursor:s.onClick?"pointer":"default", borderTop:"none", borderBottom:"none", borderLeft:"none" }}>
                   <div style={{ fontSize:17, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
                   <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
                 </button>
@@ -3447,12 +3510,12 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
 
         {/* Their deals */}
         <div style={{ padding:"16px 20px 0", ...a(0.14) }}>
-          <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:12 }}>
-            {user.id===ME.id?"Your Deals":"Their Deals"}
+          <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:12 }}>
+            {isOwn?"Your Posts":"Their Posts"}
           </div>
           {myDeals.length===0 && (
             <div style={{ textAlign:"center", padding:"24px 0", color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>
-              {user.id===ME.id?"You haven't posted any deals yet.":"No deals posted yet."}
+              {isOwn?"You haven't posted any deals yet.":"No posts yet."}
             </div>
           )}
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -3496,7 +3559,11 @@ function LocationPage({ district, theme, lang, onBack, onUserTap }) {
   useEffect(()=>{setTimeout(()=>setOn(true),60);},[]);
   useEffect(() => {
     if (!district) return;
-    const q = query(collection(fbDb, "deals"), where("status","==","approved"), where("district","==",district), limit(40));
+    // "Doha, Qatar" is a country-wide aggregator — returns all approved deals without district filter
+    const isMegaLocation = district === "Doha, Qatar";
+    const q = isMegaLocation
+      ? query(collection(fbDb, "deals"), where("status","==","approved"), limit(80))
+      : query(collection(fbDb, "deals"), where("status","==","approved"), where("district","==",district), limit(40));
     const unsub = onSnapshot(q,
       snap => {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -3646,7 +3713,7 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }
     const words = meaningfulWords.length > 0 ? meaningfulWords : allWords;
 
     const candidates = [];
-    Object.values(SEARCH_RESULTS).flat().forEach(r => candidates.push({ ...r, _source: "search" }));
+    // NOTE: Mock SEARCH_RESULTS no longer included — they were sample/dummy items polluting real searches.
     liveDeals.forEach(deal => {
       (deal.items || []).forEach(item => candidates.push({
         item: item.n || item.name, vendor: deal.place, platform: deal.platform, district: deal.district,
@@ -3737,7 +3804,7 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }
     if (!query) return [];
     const words = query.split(/\s+/);
 
-    const dealMatches = DEALS
+    const dealMatches = liveDeals
       .map(d => {
         let score = 0;
         const place    = (d.place||"").toLowerCase();
@@ -4039,6 +4106,29 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }
               </div>
             )}
 
+            {/* Empty state — when nothing matches in any filter */}
+            {(() => {
+              const counts = {
+                all:       sorted.length + userResults.length + locationResults.length,
+                items:     sorted.length,
+                users:     userResults.length,
+                locations: locationResults.length,
+                stores:    locationResults.length,
+              };
+              if (counts[filterType] > 0) return null;
+              return (
+                <div style={{ padding:"40px 24px", textAlign:"center", animation:"fu 0.3s ease both" }}>
+                  <div style={{ width:64, height:64, margin:"0 auto 14px", borderRadius:"50%", background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </div>
+                  <div style={{ fontSize:15, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>No matches for "{submitted}"</div>
+                  <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, maxWidth:260, margin:"0 auto" }}>
+                    Try a different keyword or be the first to post a deal about it.
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ── Users view ── */}
             {filterType==="users" && (
               <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:10 }}>
@@ -4139,7 +4229,7 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
             </div>
             <Ico.Pin s={10} c={c.accent}/>
             <span style={{ fontSize:11, color:c.accent, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>{deal.district}</span>
-            <span style={{ fontSize:10, color:c.sub }}>· {deal.time} ago</span>
+            <span style={{ fontSize:10, color:c.sub }}>· {deal.time || deal.submitted || "Recently"}</span>
           </div>
 
           {/* Store name */}
@@ -4180,14 +4270,17 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
             <div style={{ position:"absolute", bottom:8, left:10, background:"rgba(0,0,0,0.65)", borderRadius:8, padding:"4px 10px" }}>
               <span style={{ fontSize:12, fontWeight:600, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{deal.place}</span>
             </div>
-            <button style={{ position:"absolute", top:8, right:10, background:TH[theme].accent, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer" }}>
+            <button onClick={()=>{
+              const q = encodeURIComponent(`${deal.place} ${deal.district || ""} Qatar`);
+              window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank");
+            }} style={{ position:"absolute", top:8, right:10, background:TH[theme].accent, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer" }}>
               <span style={{ fontSize:11, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>Open in Maps</span>
             </button>
           </div>
 
           {/* Stats */}
           <div style={{ display:"flex", gap:16, padding:"0 4px" }}>
-            {[{label:"Ups",val:deal.ups},{label:"Revealed",val:deal.claims},{label:"Time",val:deal.time+" ago"}].map(s=>(
+            {[{label:"Ups",val:deal.ups},{label:"Revealed",val:deal.claims},{label:"Posted",val:deal.time||deal.submitted||"Recently"}].map(s=>(
               <div key={s.label} style={{ textAlign:"center" }}>
                 <div style={{ fontSize:16, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
                 <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
@@ -4514,7 +4607,6 @@ function BetaConsent({ theme, onAccept }) {
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
             <TagMark size={22} fill={c.accent} holeBg={c.bg}/>
             <span style={{ fontSize:18, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>BKM Beta</span>
-            <span style={{ fontSize:10, fontWeight:700, color:"#F59E0B", background:"#F59E0B18", border:"1px solid #F59E0B44", borderRadius:6, padding:"2px 7px", fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
           </div>
           <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>Please read and accept our terms before joining. Scroll to the bottom to continue.</div>
         </div>
@@ -4838,11 +4930,19 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
     </button>
   );
 
-  const Section = ({ title }) => (
-    <div style={{ padding:"20px 20px 8px" }}>
-      <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase" }}>{title}</span>
+  const Section = ({ title, icon }) => (
+    <div style={{ padding:"22px 20px 8px", display:"flex", alignItems:"center", gap:8 }}>
+      {icon && <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:22, height:22, borderRadius:6, background:`${c.accent}12`, color:c.accent }}>{icon}</span>}
+      <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:700 }}>{title}</span>
     </div>
   );
+
+  // Section icons (16x16, inline SVG)
+  const IconBell = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
+  const IconSpeaker = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
+  const IconPalette = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>;
+  const IconHelp = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+  const IconInfo = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>;
 
   const FAQS = [
     { q:"How do reveals work?",              a:"You get 10 reveal energy. Each reveal uses 1. Energy refills 1 every 2 hours, or earn extras: post a deal (+3), get an upvote (+1), share a deal (+1, max 3/day), daily login (+5)." },
@@ -4882,7 +4982,7 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
       <div style={{ flex:1, overflowY:"auto", paddingBottom:32 }}>
 
         {/* Notifications */}
-        <Section title="Notifications"/>
+        <Section title="Notifications" icon={IconBell}/>
         <div style={{ background:c.surface, borderTop:`1px solid ${c.border}`, borderBottom:`1px solid ${c.border}` }}>
           {[
             { key:"reveals", label:"Reveals",        sub:"When someone reveals your post" },
@@ -4897,7 +4997,7 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
         </div>
 
         {/* Sound */}
-        <Section title="Sound"/>
+        <Section title="Sound &amp; Haptics" icon={IconSpeaker}/>
         <div style={{ background:c.surface, borderTop:`1px solid ${c.border}`, borderBottom:`1px solid ${c.border}` }}>
           <Row
             label="Sound effects"
@@ -5070,9 +5170,14 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
 
   const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
 
+  const ownedCount = Array.from(myCommunities.values()).filter(m => m.role === "owner").length;
+
   const filtered = communities.filter(co => {
     if (filter === "mine") {
       if (!myCommunities.has(co.id)) return false;
+    } else if (filter === "owned") {
+      const mem = myCommunities.get(co.id);
+      if (!mem || mem.role !== "owner") return false;
     } else if (filter !== "all") {
       if (co.category !== filter) return false;
     }
@@ -5113,8 +5218,9 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
       {/* Filter pills */}
       <div style={{ padding:"4px 16px 12px", flexShrink:0, overflowX:"auto", display:"flex", gap:7 }}>
         {[
-          { key:"all",  label:"All" },
-          { key:"mine", label:`Joined${myCommunities.size>0?` (${myCommunities.size})`:""}` },
+          { key:"all",   label:"All" },
+          { key:"mine",  label:`Joined${myCommunities.size>0?` (${myCommunities.size})`:""}` },
+          { key:"owned", label:`Owned${ownedCount>0?` (${ownedCount})`:""}` },
           ...COMMUNITY_CATEGORIES.slice(0, 7).map(cat => ({ key: cat.key, label: cat.label })),
         ].map(p => (
           <button key={p.key} onClick={()=>{ sfx.tap(); setFilter(p.key); }} style={{
@@ -5137,6 +5243,8 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
           <div style={{ textAlign:"center", padding:"40px 20px", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>
             {filter === "mine" ? (
               <>You haven't joined any communities yet.<br/>Browse and tap one to join.</>
+            ) : filter === "owned" ? (
+              <>You don't own any communities yet.<br/>Tap "Create" to start your own.</>
             ) : search ? (
               <>No communities match "{search}".</>
             ) : communities.length === 0 ? (
@@ -5324,16 +5432,18 @@ function CommunityDetail({ theme, lang, communityId, onBack, onPostInCommunity }
           </div>
         )}
 
-        {/* Posts placeholder — coming next session */}
-        <div style={{ padding:"24px 20px", ...a(0.16) }}>
-          <div style={{ fontSize:11, fontWeight:800, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Community Feed</div>
-          <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"30px 16px", textAlign:"center" }}>
-            <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:5 }}>Posts coming soon</div>
-            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
-              Post-to-community is being wired up.<br/>Members will see a feed of community-only posts here.
+        {/* Posts placeholder — coming next session, only for members */}
+        {isMember && (
+          <div style={{ padding:"24px 20px", ...a(0.16) }}>
+            <div style={{ fontSize:11, fontWeight:800, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Community Feed</div>
+            <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"30px 16px", textAlign:"center" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:5 }}>Posts coming soon</div>
+              <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
+                Post-to-community is being wired up.<br/>Members will see a feed of community-only posts here.
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div style={{ height:24 }}/>
       </div>
@@ -5961,6 +6071,35 @@ export default function BKMApp() {
           <button onClick={()=>{ if (window._bkmActivateUpdate) window._bkmActivateUpdate(); }} style={{ background:"#FFFFFF", color:c.accent, border:"none", borderRadius:9, padding:"7px 14px", fontSize:12, fontWeight:800, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Update</button>
         </div>
       )}
+      {/* Global notification bell — visible on all main tabs */}
+      {screen==="feed" && !pushedScreen && !["onboarding","consent"].includes(screen) && (
+        <button onClick={()=>push("notifications",null)} aria-label="Notifications" style={{
+          position:"fixed",
+          top:`calc(env(safe-area-inset-top) + ${updateAvailable?56:12}px)`,
+          right:14,
+          width:42, height:42, borderRadius:"50%",
+          background:c.surface, border:`1px solid ${c.border}`,
+          cursor:"pointer",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          zIndex:60,
+          boxShadow:"0 3px 12px rgba(28,18,8,0.10)",
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          {unreadCount > 0 && (
+            <div style={{
+              position:"absolute", top:4, right:4,
+              minWidth:18, height:18, borderRadius:9,
+              background:c.accent, color:"#FFFFFF",
+              fontSize:9, fontWeight:800,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              padding:"0 5px",
+              border:`2px solid ${c.bg}`,
+              fontFamily:"'DM Sans',sans-serif",
+              animation: unreadCount > 0 ? "bellPulse 1.4s ease-in-out infinite" : "none",
+            }}>{unreadCount > 99 ? "99+" : unreadCount}</div>
+          )}
+        </button>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Noto+Naskh Arabic:wght@400;500;600&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
@@ -5970,6 +6109,21 @@ export default function BKMApp() {
         @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
         @keyframes slideDown { from{transform:translateY(-100%);opacity:0} to{transform:translateY(0);opacity:1} }
         @keyframes bkmSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        @keyframes bellPulse {
+          0%,100% { transform:scale(1); box-shadow:0 0 0 0 rgba(139,0,56,0.5); }
+          50%     { transform:scale(1.08); box-shadow:0 0 0 4px rgba(139,0,56,0); }
+        }
+        @keyframes goldSweep {
+          0%   { transform:translateX(-100%); opacity:0; }
+          20%  { opacity:1; }
+          80%  { opacity:1; }
+          100% { transform:translateX(220%); opacity:0; }
+        }
+        @keyframes digitPop {
+          0%   { transform:scale(0) translateY(6px); opacity:0; }
+          60%  { transform:scale(1.18) translateY(-2px); opacity:1; }
+          100% { transform:scale(1) translateY(0); opacity:1; }
+        }
         @keyframes shakeX { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
         @keyframes priceReveal { 0%{opacity:0;transform:scale(0.92) translateY(6px)} 60%{transform:scale(1.03)} 100%{opacity:1;transform:scale(1) translateY(0)} }
         @keyframes upBurst { 0%{transform:scale(1)} 35%{transform:scale(1.4) translateY(-4px)} 65%{transform:scale(0.92)} 100%{transform:scale(1)} }
