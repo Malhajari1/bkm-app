@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.9.6 · profile posts + notifications nav";
+const APP_VERSION = "v0.9.7 · post normalize + press feedback";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3830,6 +3830,45 @@ function LocationPage({ district, theme, lang, onBack, onUserTap }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // FOLLOWING LIST — view people the current user follows, with quick unfollow
 // ─────────────────────────────────────────────────────────────────────────────
+// Small pressable button with proper scale-on-press feedback + brief sending state.
+// Used by FollowingList and FollowersScreen for follow/unfollow actions.
+function PressableActionButton({ label, accent=false, onPress, c }) {
+  const [pressed, setPressed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const press = (v) => setPressed(v);
+  const handleClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onPress?.(); } catch(e) {}
+    setTimeout(()=>setBusy(false), 300);
+  };
+  return (
+    <button
+      onPointerDown={()=>press(true)}
+      onPointerUp={()=>press(false)}
+      onPointerLeave={()=>press(false)}
+      onClick={handleClick}
+      disabled={busy}
+      style={{
+        padding:"7px 14px",
+        background: accent ? c.accent : "transparent",
+        border:`1.5px solid ${accent ? "transparent" : c.border}`,
+        borderRadius:10,
+        fontSize:11, fontWeight:700,
+        color: accent ? "#FFFFFF" : c.sub,
+        fontFamily:"'DM Sans',sans-serif",
+        cursor: busy ? "default" : "pointer",
+        flexShrink:0,
+        opacity: busy ? 0.6 : 1,
+        transition:"transform 0.12s cubic-bezier(0.34,1.5,0.64,1), background 0.18s, border-color 0.18s, opacity 0.2s",
+        transform: pressed ? "scale(0.92)" : "scale(1)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 function FollowingList({ theme, lang, onBack, onUserTap }) {
   const c = TH[theme];
   const [followingIds, setFollowingIds] = useState([]);
@@ -3922,7 +3961,7 @@ function FollowingList({ theme, lang, onBack, onUserTap }) {
                     <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{u.followers||0} followers</div>
                   </div>
                 </button>
-                <button onClick={()=>handleUnfollow(u.uid)} style={{ padding:"7px 14px", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:9, fontSize:11, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>Unfollow</button>
+                <PressableActionButton label="Unfollow" c={c} onPress={()=>handleUnfollow(u.uid)}/>
               </div>
             ))}
           </div>
@@ -4035,7 +4074,7 @@ function FollowersScreen({ uid, theme, lang, onBack, onUserTap }) {
                     </div>
                   </button>
                   {!isSelf && (
-                    <button onClick={()=>handleToggleFollow(u.uid)} style={{ padding:"7px 14px", background:iFollow?"transparent":c.accent, border:`1.5px solid ${iFollow?c.border:"transparent"}`, borderRadius:9, fontSize:11, fontWeight:700, color:iFollow?c.sub:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", flexShrink:0 }}>{iFollow?"Unfollow":"Follow"}</button>
+                    <PressableActionButton label={iFollow?"Unfollow":"Follow"} accent={!iFollow} c={c} onPress={()=>handleToggleFollow(u.uid)}/>
                   )}
                 </div>
               );
@@ -6569,9 +6608,45 @@ export default function BKMApp() {
     }
   };
 
+  // Normalize a deal so PostDetail can safely render it.
+  // Raw Firestore deal docs only carry `userId`. PostDetail expects `deal.user`
+  // (with username/av/rank/founder). Without this, PostDetail crashes on
+  // `deal.user.username` and ErrorBoundary swallows it → blank screen.
+  const openPostNormalized = async (deal) => {
+    if (!deal) return;
+    let dealData = { ...deal };
+    if (!dealData.user) {
+      const ownerUid = dealData.userId || dealData.uid;
+      if (ownerUid) {
+        try {
+          const userSnap = await getDoc(doc(fbDb, "users", ownerUid));
+          if (userSnap.exists()) {
+            const u = userSnap.data();
+            dealData.user = {
+              id: ownerUid, uid: ownerUid,
+              username: u.username || "user",
+              av: u.avatar || "a1",
+              rank: u.rank || 0,
+              founder: !!u.isFounder,
+              followers: u.followers || 0,
+            };
+          }
+        } catch(e) { console.warn("[BKM] open post user fetch failed:", e); }
+      }
+      // Last-resort fallback so render never throws even if the user doc is missing
+      if (!dealData.user) {
+        dealData.user = {
+          id: dealData.userId || "unknown", uid: dealData.userId || "unknown",
+          username: "user", av: "a1", rank: 0, founder: false, followers: 0,
+        };
+      }
+    }
+    push("post", dealData);
+  };
+
   const renderTab = () => {
     if (pushedScreen?.type==="location")      return <LocationPage district={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>push("user",u)}/>;
-    if (pushedScreen?.type==="user")          return <Profile user={pushedScreen.data} theme={theme} lang={lang} onBack={pop} showBack onViewFollowers={()=>push("followers", pushedScreen.data.uid || pushedScreen.data.id)} onOpenPost={d=>push("post",d)}/>;
+    if (pushedScreen?.type==="user")          return <Profile user={pushedScreen.data} theme={theme} lang={lang} onBack={pop} showBack onViewFollowers={()=>push("followers", pushedScreen.data.uid || pushedScreen.data.id)} onOpenPost={openPostNormalized}/>;
     if (pushedScreen?.type==="post")          return <PostDetail deal={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}/>;
     if (pushedScreen?.type==="notifications") return <NotificationsScreen
       notifications={notifications}
@@ -6637,7 +6712,7 @@ export default function BKMApp() {
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
-    if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)} onViewFollowers={()=>{ const me = fbAuth.currentUser; if (me) push("followers", me.uid); }} onOpenPost={d=>push("post",d)}/>;
+    if (tab==="profile") return <Profile    user={getMe()} theme={theme} lang={lang} onSignOut={signOut} onNotifications={()=>push("notifications",null)} onSettings={()=>push("settings",null)} unreadCount={unreadCount} onViewFollowing={()=>push("following",null)} onViewFollowers={()=>{ const me = fbAuth.currentUser; if (me) push("followers", me.uid); }} onOpenPost={openPostNormalized}/>;
     if (tab==="dev")     return <ErrorBoundary><DevReview  theme={theme} pendingPosts={pendingPosts} onApprove={handleApprove} onReject={handleReject} onSignOut={signOut}/></ErrorBoundary>;
   };
 
