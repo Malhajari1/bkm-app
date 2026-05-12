@@ -522,7 +522,7 @@ const fbCreateCommunity = async (data, ownerUid, ownerUsername, ownerAvatar) => 
     nameLower:    data.name.toLowerCase(),
     description:  data.description || "",
     rules:        data.rules || "",
-    bannerColor:  data.bannerColor || "#8B0038",
+    bannerColor:  data.bannerColor || "#B53056",
     category:     data.category || "general",
     type:         data.type || "public", // public | private
     ownerUid,
@@ -858,9 +858,9 @@ const getPostBanner = (deal) => {
   const ratio = deal.ups / Math.max(1, deal.ups + deal.downs);
   const claims = deal.claims;
   if (deal.user.founder)               return { label:"FOUNDER",    grad:"linear-gradient(90deg,#1D6FEB,#56B0FF)" };
-  if (deal.user.rank===4 && ratio>0.9) return { label:"ELITE PICK", grad:"linear-gradient(90deg,#8B0038,#C9892A,#FFD700)" };
+  if (deal.user.rank===4 && ratio>0.9) return { label:"ELITE PICK", grad:"linear-gradient(90deg,#B53056,#E0A33E,#FFCF8A)" };
   if (claims>300 && ratio>0.85)        return { label:"TRENDING",   grad:"linear-gradient(90deg,#FF6B35,#FFB347)" };
-  if (claims>100 && ratio>0.85)        return { label:"HOT",        grad:"linear-gradient(90deg,#8B0038,#D4A24C)" };
+  if (claims>100 && ratio>0.85)        return { label:"HOT",        grad:"linear-gradient(90deg,#B53056,#E0A33E)" };
   if (deal.verified && ratio>0.9)      return { label:"TRUSTED",    grad:"linear-gradient(90deg,#16A34A,#34D399)" };
   return null;
 };
@@ -995,11 +995,11 @@ const TIER_STYLES = [
   // 1 FINDER — solid outline
   { background:"transparent", color:"#6B5B4A", border:"1px solid #A0907A" },
   // 2 HUNTER — tinted maroon
-  { background:"rgba(139,0,56,0.10)", color:"#8B0038", border:"1px solid rgba(139,0,56,0.27)" },
+  { background:"rgba(181,48,86,0.10)", color:"#B53056", border:"1px solid rgba(181,48,86,0.27)" },
   // 3 TRACKER — solid maroon
-  { background:"#8B0038", color:"#FFFFFF", border:"1px solid #8B0038" },
+  { background:"#B53056", color:"#FFFFFF", border:"1px solid #B53056" },
   // 4 ELITE — maroon to gold gradient (most premium credibility tier)
-  { background:"linear-gradient(135deg,#8B0038,#C9892A)", color:"#FFFFFF", border:"1px solid transparent" },
+  { background:"linear-gradient(135deg,#B53056,#E0A33E)", color:"#FFFFFF", border:"1px solid transparent" },
 ];
 
 const FOUNDER_STYLE = { background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", color:"#FFFFFF", border:"1px solid transparent" };
@@ -1025,12 +1025,12 @@ function TierBadge({ user, size="sm" }) {
 }
 
 function getRankBorderStyle(tier) {
-  if (tier === 0) return { border:"1px solid #2A2018",      shadow:"none",                            grad:null };
-  if (tier === 1) return { border:"1.5px solid #8B003855",  shadow:"none",                            grad:null };
-  if (tier === 2) return { border:"2px solid #8B0038",      shadow:"0 0 10px #8B003828",              grad:null };
-  if (tier === 3) return { border:"none",                   shadow:"0 0 16px #8B003840",              grad:"linear-gradient(135deg,#8B0038,#C9892A)" };
-  if (tier === 4) return { border:"none",                   shadow:"0 0 22px #8B003855",              grad:"animated" };
-  return { border:"1px solid #2A2018", shadow:"none", grad:null };
+  if (tier === 0) return { border:"1px solid #34302C",      shadow:"none",                            grad:null };
+  if (tier === 1) return { border:"1.5px solid #B5305655",  shadow:"none",                            grad:null };
+  if (tier === 2) return { border:"2px solid #B53056",      shadow:"0 0 10px #B5305628",              grad:null };
+  if (tier === 3) return { border:"none",                   shadow:"0 0 16px #B5305640",              grad:"linear-gradient(135deg,#B53056,#E0A33E)" };
+  if (tier === 4) return { border:"none",                   shadow:"0 0 22px #B5305655",              grad:"animated" };
+  return { border:"1px solid #34302C", shadow:"none", grad:null };
 }
 
 function getRingStyle(tier) {
@@ -1189,7 +1189,7 @@ function TagMark({ size=80, fill, holeBg }) {
       <defs><mask id="tmh"><rect width={W} height={H} fill="white"/><circle cx={hCx} cy={hCy} r={hR} fill="black"/></mask></defs>
       <path d={p} fill={fill} mask="url(#tmh)"/>
       <circle cx={hCx} cy={hCy} r={hR} stroke={holeBg} strokeWidth={H*0.028} fill="none"/>
-      <line x1={W*0.35} y1={H*0.80} x2={W*0.78} y2={H*0.80} stroke="#8B0038" strokeWidth={H*0.042} strokeLinecap="round"/>
+      <line x1={W*0.35} y1={H*0.80} x2={W*0.78} y2={H*0.80} stroke="#B53056" strokeWidth={H*0.042} strokeLinecap="round"/>
     </svg>
   );
 }
@@ -1244,7 +1244,7 @@ function Avatar({ user, size=38 }) {
         <span style={{ fontSize:size*0.42, fontWeight:800, color:col.fg, fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{init}</span>
       </div>
       {isFounder && (
-        <div style={{ position:"absolute", bottom:-1, right:-1, width:Math.max(13,size*0.34), height:Math.max(13,size*0.34), borderRadius:"50%", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", border:"2px solid #07060A", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ position:"absolute", bottom:-1, right:-1, width:Math.max(13,size*0.34), height:Math.max(13,size*0.34), borderRadius:"50%", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", border:"2px solid #181513", display:"flex", alignItems:"center", justifyContent:"center" }}>
           <svg width="7" height="7" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
         </div>
       )}
@@ -1288,9 +1288,9 @@ function RankCard({ tier=0, children, c, founder=false, hasTopBanner=false }) {
   }
   // tier 4 — animated + ribbon
   return (
-    <div style={{ padding:2, background:"linear-gradient(135deg,#8B0038,#C9892A,#FFD700,#8B0038)", borderRadius:20, boxShadow:rs.shadow }}>
+    <div style={{ padding:2, background:"linear-gradient(135deg,#B53056,#E0A33E,#FFCF8A,#B53056)", borderRadius:20, boxShadow:rs.shadow }}>
       <div style={{ background:c.card, borderRadius:18, overflow:"hidden", position:"relative" }}>
-        {!hasTopBanner && <div style={{ position:"absolute", top:38, right:-26, background:"linear-gradient(135deg,#C9892A,#FFD700)", color:"#000", fontSize:7, fontWeight:900, padding:"3px 30px", transform:"rotate(45deg)", letterSpacing:"0.1em", zIndex:5, fontFamily:"'DM Sans',sans-serif" }}>ELITE</div>}
+        {!hasTopBanner && <div style={{ position:"absolute", top:38, right:-26, background:"linear-gradient(135deg,#E0A33E,#FFCF8A)", color:"#181513", fontSize:7, fontWeight:900, padding:"3px 30px", transform:"rotate(45deg)", letterSpacing:"0.1em", zIndex:5, fontFamily:"'DM Sans',sans-serif" }}>ELITE</div>}
         {children}
       </div>
     </div>
@@ -2476,365 +2476,310 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   // Vote buttons enabled only after reveal (or if it's your own post)
   const canVote = effectiveClaimed;
 
-  return (
-    <RankCard tier={rank} c={c} founder={isFounder} hasTopBanner={!!(postBanner || isOwn)}>
-      <div style={{ padding:"13px 14px 12px" }}>
+  // ─── v1.0 NEW DEAL CARD ───────────────────────────────────────────────────
+  // Compact discovery card. Category color stripe on left, tier ring on avatar,
+  // locked OR revealed price strip, helpful ratio bar at bottom. Same logic,
+  // same handlers, new visual shell.
+  const totalVotes = upCount + downCount;
+  const helpfulRatio = totalVotes > 0 ? Math.round((upCount / totalVotes) * 100) : 0;
+  const catColor = CATEGORY_COLORS[deal.cat] || c.gold;
+  const isHot = claimCount > 100 && helpfulRatio > 80;
+  const items = Array.isArray(deal.items) ? deal.items : [];
+  const firstItem = items[0] || { n: deal.subject || "Find", p: 0 };
+  const extraCount = Math.max(0, items.length - 1);
 
-        {/* Post banner strip */}
-        {(postBanner || isOwn) && (
-          <div style={{ margin:"-13px -14px 11px -14px", background: postBanner ? postBanner.grad : "linear-gradient(90deg,#1D6FEB,#56B0FF)", padding:"7px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <span style={{ fontSize:10, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.14em", textShadow:"0 1px 2px rgba(0,0,0,0.15)" }}>
-              {isOwn ? `YOUR POST · ${claimCount} REVEALS` : postBanner?.label}
-            </span>
-            <div style={{ display:"flex", alignItems:"center", gap:3 }}>
-              <div style={{ width:3, height:3, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
-              <div style={{ width:3, height:3, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
-              <div style={{ width:3, height:3, borderRadius:"50%", background:"rgba(255,255,255,0.5)" }}/>
-            </div>
+  return (
+    <div style={{ position:"relative", marginBottom:10 }}>
+      <div
+        onClick={()=>onOpenPost && onOpenPost(deal)}
+        style={{
+          position:"relative",
+          background: c.surface,
+          border: `1px solid ${c.border}`,
+          borderRadius: 18,
+          padding: "13px 13px",
+          display: "grid",
+          gridTemplateColumns: "40px 1fr",
+          gap: 11,
+          cursor: "pointer",
+          transition: "border-color 0.18s, transform 0.12s",
+        }}
+        onMouseDown={e=>e.currentTarget.style.transform="scale(0.997)"}
+        onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+        onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}
+      >
+        {/* Category color stripe (left edge) */}
+        <div style={{ position:"absolute", left:-1, top:18, width:3, height:28, borderRadius:2, background:catColor }}/>
+
+        {/* Hot/Banner badge — top right corner */}
+        {(postBanner || isOwn || isHot) && (
+          <div style={{
+            position:"absolute", top:10, right:10,
+            display:"inline-flex", alignItems:"center", gap:4,
+            padding:"3px 8px",
+            background: isOwn ? "linear-gradient(135deg,#1D6FEB,#56B0FF)" : (postBanner?.grad || `linear-gradient(135deg, ${c.hot}, ${c.gold})`),
+            borderRadius: 100,
+            fontFamily:"'DM Sans',sans-serif",
+            fontSize: 8.5,
+            fontWeight: 800,
+            color: "#FFFFFF",
+            letterSpacing: "0.14em",
+            zIndex: 2,
+          }}>
+            {isOwn ? "YOURS" : (postBanner?.label || `🔥 ${claimCount}`)}
           </div>
         )}
 
-        {/* ── User row ── */}
-        <button onClick={()=>onUserTap(deal.user)} style={{ display:"flex", alignItems:"center", gap:9, background:"none", border:"none", cursor:"pointer", padding:0, width:"100%", textAlign:"left", marginBottom:10 }}>
-          <Avatar user={deal.user} size={34}/>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-              <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{deal.user.username}</span>
-              <TierBadge user={deal.user} size="sm"/>
-              {betaBadge && (
-                <span style={{ fontSize:9, fontWeight:800, color:betaBadge.color, background:betaBadge.bg, border:`1px solid ${betaBadge.border}`, borderRadius:5, padding:"1px 6px", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.06em" }}>β {betaBadge.label}</span>
-              )}
-              {deal.verified && <span style={{ fontSize:9, fontWeight:700, color:c.accent, background:`${c.accent}15`, border:`1px solid ${c.accent}30`, borderRadius:5, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>VERIFIED</span>}
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:3, flexWrap:"wrap" }}>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:3, background:`${PM.color}18`, border:`1px solid ${PM.color}44`, borderRadius:6, padding:"2px 7px" }}>
-                <div style={{ width:5, height:5, borderRadius:"50%", background:PM.color }}/>
-                <span style={{ fontSize:9, fontWeight:700, color:PM.color, fontFamily:"'DM Sans',sans-serif" }}>{PM.label}</span>
-              </div>
-              <span style={{ color:c.border, fontSize:10 }}>·</span>
-              <div style={{ display:"flex", alignItems:"center", gap:3 }}>
-                <Ico.Pin s={9} c={c.accent}/>
-                <span style={{ fontSize:10, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>{deal.district}</span>
-              </div>
-              <span style={{ color:c.border, fontSize:10 }}>·</span>
-              <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{deal.time} ago</span>
-            </div>
-          </div>
+        {/* Avatar with tier ring (existing Avatar component does this) */}
+        <button
+          onClick={(e)=>{ e.stopPropagation(); onUserTap && onUserTap(deal.user); }}
+          style={{ background:"none", border:"none", padding:0, cursor:"pointer", width:40, height:40, flexShrink:0 }}
+        >
+          <Avatar user={deal.user} size={36}/>
         </button>
 
-        {/* Store name */}
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8, background:c.muted, borderRadius:9, padding:"6px 10px" }}>
-          <Ico.Pin s={11} c={c.sub}/>
-          <span style={{ fontSize:12, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{deal.place}</span>
-          <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>{deal.address.split(",")[0]}</span>
-        </div>
-
-        {/* Subject */}
-        <p style={{ fontSize:13, fontWeight:500, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.55, margin:"0 0 11px 0" }}>{deal.subject}</p>
-
-        {/* Reveal / revealed — own posts auto-reveal */}
-        {!effectiveClaimed ? (
-          <div style={{ marginBottom:11 }}>
-            <button onClick={handleClaim} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:10, background:limitReached?c.muted:c.accent, border:limitReached?`1px dashed ${c.border}`:"none", borderRadius:12, padding:"14px 0", cursor:"pointer", boxShadow:limitReached?"none":`0 4px 20px ${c.accent}44`, transition:"transform 0.12s, box-shadow 0.12s", animation:revealAnim?"upBurst 0.4s ease both":"none" }}
-              onMouseOver={e=>{ if(!limitReached){ e.currentTarget.style.transform="scale(1.02)"; e.currentTarget.style.boxShadow=`0 8px 28px ${c.accent}66`; } }}
-              onMouseOut={e=>{ if(!limitReached){ e.currentTarget.style.transform="scale(1)"; e.currentTarget.style.boxShadow=`0 4px 20px ${c.accent}44`; } }}
-            >
-              {limitReached ? (
-                <>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill={c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
-                  <span style={{ fontSize:13, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Out of reveals · Tap to earn more</span>
-                </>
-              ) : (
-                <>
-                  <TagMark size={20} fill="#FFFFFF" holeBg={c.accent}/>
-                  <div style={{ textAlign:"left" }}>
-                    <div style={{ fontSize:16, fontWeight:900, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.08em" }}>BKM</div>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.55)", fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>{claimCount} people already revealed this</div>
-                  </div>
-                </>
-              )}
-            </button>
+        {/* Card body */}
+        <div style={{ display:"flex", flexDirection:"column", gap:7, minWidth:0 }}>
+          {/* User meta row */}
+          <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>
+            <span style={{ color:c.text, fontWeight:600 }}>@{deal.user.username || "user"}</span>
+            {isFounder && (
+              <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:13, height:13, background:c.gold, color:c.bg, borderRadius:"50%", fontSize:8, fontWeight:800, lineHeight:1 }}>✓</span>
+            )}
+            <span style={{ color: c.text2 || c.sub, fontSize:7 }}>●</span>
+            <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:10.5 }}>tier {rank}</span>
           </div>
-        ) : (
-          <button onClick={()=>onOpenPost(deal)} style={{ width:"100%", textAlign:"left", background:"none", border:"none", padding:0, cursor:"pointer", marginBottom:11 }}>
-            {/* Price block — ticket style with perforated cutouts + gold-sweep on reveal */}
-            <div style={{
-              background:c.muted, borderRadius:12, padding:"12px 14px",
-              position:"relative", overflow:"hidden",
-              border:`1px dashed ${c.border}`,
-              animation:priceAnim?"priceReveal 0.6s cubic-bezier(0.34,1.56,0.64,1) both":"none",
-            }}>
-              {/* Gold sweep — sweeps L→R during reveal */}
-              {priceAnim && (
-                <div style={{
-                  position:"absolute", inset:0, pointerEvents:"none", overflow:"hidden",
-                }}>
-                  <div style={{
-                    position:"absolute", top:0, bottom:0, left:0, width:"60%",
-                    background:"linear-gradient(90deg, transparent, rgba(255,209,122,0.55) 40%, rgba(255,209,122,0.85) 50%, rgba(255,209,122,0.55) 60%, transparent)",
-                    animation:"goldSweep 1s cubic-bezier(0.4,0,0.2,1) both",
-                  }}/>
-                </div>
-              )}
-              {/* Perforated ticket cutouts on left/right edges */}
-              <div style={{ position:"absolute", left:-7, top:"50%", transform:"translateY(-50%)", width:14, height:14, background:c.bg, borderRadius:"50%" }}/>
-              <div style={{ position:"absolute", right:-7, top:"50%", transform:"translateY(-50%)", width:14, height:14, background:c.bg, borderRadius:"50%" }}/>
 
-              {deal.items.map((item,i) => (
-                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:i>0?8:0, marginTop:i>0?8:0, borderTop:i>0?`1px solid ${c.border}`:"none", position:"relative", zIndex:1 }}>
-                  <span style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.n}</span>
-                  <span style={{
-                    fontSize:16, fontWeight:800, color:c.accent,
-                    fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em",
-                    display:"inline-flex", alignItems:"baseline", gap:0,
-                  }}>
-                    QAR&nbsp;
-                    {/* Each digit gets its own pop-in animation (only when priceAnim true) */}
-                    {Number(item.p).toFixed(2).split("").map((ch, di) => (
-                      <span key={di} style={{
-                        display:"inline-block",
-                        animation: priceAnim ? `digitPop 0.45s cubic-bezier(0.34,1.6,0.64,1) ${0.35 + di*0.07}s both` : "none",
-                      }}>{ch}</span>
-                    ))}
+          {/* Title */}
+          <div style={{
+            fontWeight: 600,
+            fontSize: 14,
+            lineHeight: 1.32,
+            letterSpacing: "-0.018em",
+            color: c.text,
+            fontFamily:"'DM Sans',sans-serif",
+            display:"-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}>
+            {deal.subject || firstItem.n}
+          </div>
+
+          {/* Place row */}
+          <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
+            <button
+              onClick={(e)=>{ e.stopPropagation(); onLocationTap && onLocationTap(deal.district); }}
+              style={{
+                display:"inline-flex", alignItems:"center", gap:4,
+                padding:"2px 7px",
+                background: c.surface2 || c.muted,
+                border:"none",
+                borderRadius: 6,
+                fontFamily:"'DM Sans',sans-serif",
+                fontSize: 9.5,
+                fontWeight: 600,
+                color: c.text,
+                cursor:"pointer",
+              }}>
+              <svg width="8" height="8" viewBox="0 0 24 24" fill={c.gold}><path d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/></svg>
+              {deal.district || "Doha"}
+            </button>
+            {deal.place && (
+              <span style={{ fontSize:11, color:c.text2 || c.sub, fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>
+                {deal.place}
+              </span>
+            )}
+            <span style={{
+              fontFamily:"'DM Sans',sans-serif",
+              fontSize: 8.5,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: catColor,
+              fontWeight: 700,
+              marginLeft: "auto",
+            }}>{deal.cat || "find"}</span>
+          </div>
+
+          {/* PRICE STRIP — locked OR revealed */}
+          {!effectiveClaimed ? (
+            // ─── LOCKED ───
+            <div style={{
+              marginTop: 3,
+              padding: "8px 10px",
+              background: c.bg,
+              borderRadius: 10,
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              gap: 9,
+              alignItems: "center",
+              border: "1px solid transparent",
+            }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+                <div style={{
+                  width:24, height:24,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  background: c.surface3 || c.muted,
+                  borderRadius: 7,
+                  color: c.gold,
+                  flexShrink: 0,
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                    <rect x="3" y="11" width="18" height="11" rx="2"/>
+                    <path d="M7 11V7a5 5 0 0110 0v4"/>
+                  </svg>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0 }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.sub, fontWeight:600 }}>Price hidden</span>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:600, color:c.text2 || c.sub }}>
+                    {items.length > 1 ? `${items.length} items · tap to reveal` : "Tap to reveal →"}
                   </span>
                 </div>
-              ))}
-              <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", position:"relative", zIndex:1 }}>
-                <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Tap to see full post + map</span>
-                <span style={{ fontSize:11, color:c.accent, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>View →</span>
+              </div>
+              <button
+                onClick={(e)=>{ e.stopPropagation(); handleClaim(); }}
+                style={{
+                  display:"inline-flex", alignItems:"center", gap:4,
+                  padding:"6px 11px",
+                  background: c.gold,
+                  color: c.bg,
+                  border:"none",
+                  borderRadius: 8,
+                  fontFamily:"'DM Sans',sans-serif",
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  whiteSpace:"nowrap",
+                  cursor:"pointer",
+                }}>
+                Open <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, opacity:0.7, fontWeight:700 }}>1◆</span>
+              </button>
+            </div>
+          ) : (
+            // ─── REVEALED ───
+            <div style={{
+              marginTop: 3,
+              padding: "8px 10px",
+              background: `linear-gradient(135deg, ${c.gold}1A, ${c.accent}0F)`,
+              borderRadius: 10,
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              gap: 9,
+              alignItems: "center",
+              border: `1px solid ${c.gold}38`,
+            }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+                <div style={{
+                  width:24, height:24,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  background: c.gold,
+                  color: c.bg,
+                  borderRadius: 7,
+                  flexShrink: 0,
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                    <rect x="3" y="11" width="18" height="11" rx="2"/>
+                    <path d="M7 11V7a5 5 0 019.9-1"/>
+                  </svg>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0 }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontWeight:700 }}>{isOwn ? "Your price" : "Revealed"}</span>
+                  <span style={{ display:"inline-flex", alignItems:"baseline", gap:5, flexWrap:"wrap" }}>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
+                      {firstItem.p ?? "—"}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                    </span>
+                    {extraCount > 0 && (
+                      <span style={{ fontSize:10, color:c.sub, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>+ {extraCount} more</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+              {/* Vote thumbs (inline after reveal) */}
+              <div style={{ display:"flex", gap:4 }}>
+                <button
+                  onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("up"); }}
+                  disabled={!canVote}
+                  style={{
+                    width:30, height:30,
+                    background: vote==="up" ? c.positive : (c.surface3 || c.muted),
+                    border: `1px solid ${vote==="up" ? c.positive : c.border}`,
+                    borderRadius: 8,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    cursor: canVote ? "pointer" : "default",
+                    color: vote==="up" ? c.bg : (c.text2 || c.text),
+                    transform: upAnim ? "scale(1.15)" : "scale(1)",
+                    transition: "all 0.18s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                  }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
+                </button>
+                <button
+                  onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("down"); }}
+                  disabled={!canVote}
+                  style={{
+                    width:30, height:30,
+                    background: vote==="down" ? c.negative : (c.surface3 || c.muted),
+                    border: `1px solid ${vote==="down" ? c.negative : c.border}`,
+                    borderRadius: 8,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    cursor: canVote ? "pointer" : "default",
+                    color: vote==="down" ? c.bg : (c.text2 || c.text),
+                    transform: downAnim ? "scale(1.15)" : "scale(1)",
+                    transition: "all 0.18s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                  }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ transform:"scaleY(-1)" }}><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
+                </button>
               </div>
             </div>
-            {/* Inline map preview */}
-            <div style={{ marginTop:7, borderRadius:12, overflow:"hidden", border:`1px solid ${c.border}`, position:"relative", height:80 }}>
-              <svg width="100%" height="80" viewBox="0 0 335 80" preserveAspectRatio="xMidYMid slice">
-                <rect width="335" height="80" fill={theme==="dark"?"#1A1810":"#E8E0CC"}/>
-                {[0,1,2,3,4].map(i=><line key={`h${i}`} x1="0" y1={i*20} x2="335" y2={i*20} stroke={theme==="dark"?"#2A2010":"#D4C8A8"} strokeWidth="8"/>)}
-                {[0,1,2,3,4,5,6,7,8,9].map(i=><line key={`v${i}`} x1={i*38} y1="0" x2={i*38} y2="80" stroke={theme==="dark"?"#2A2010":"#D4C8A8"} strokeWidth="8"/>)}
-                {[[10,4,28,10],[50,4,48,10],[110,4,38,10],[160,4,50,10],[222,4,48,10],[10,22,58,10],[80,22,40,10],[132,22,50,10],[194,22,58,10],[10,44,30,10],[52,44,60,10],[124,44,68,10],[204,44,50,10],[266,44,62,10],[10,62,80,10],[102,62,50,10],[164,62,70,10],[246,62,80,10]].map(([x,y,w,h],i)=>(
-                  <rect key={i} x={x} y={y} width={w} height={h} rx="2" fill={theme==="dark"?"#241C0C":"#C8BC98"} opacity="0.7"/>
-                ))}
-                <circle cx="167" cy="40" r="10" fill={c.accent} opacity="0.25"/>
-                <circle cx="167" cy="40" r="6" fill={c.accent}/>
-                <circle cx="167" cy="40" r="3" fill="#FFFFFF"/>
+          )}
+
+          {/* Helpful ratio bar */}
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:3 }}>
+            <div style={{ flex:1, height:3.5, background: c.surface3 || c.muted, borderRadius:2, overflow:"hidden" }}>
+              <div style={{
+                height:"100%",
+                width: `${helpfulRatio}%`,
+                background: c.positive,
+                borderRadius: 2,
+                transition: "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}/>
+            </div>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9.5, color:c.sub, fontWeight:500 }}>
+              <span style={{ color:c.text2 || c.text, fontWeight:600 }}>{helpfulRatio}%</span>
+              {" · "}
+              {upCount}/{Math.max(1, totalVotes)} helpful
+              {commentCount > 0 && <span> · 💬 {commentCount}</span>}
+            </span>
+          </div>
+
+          {/* Bookmark icon, inline at far right of the meta row (subtle) */}
+          {!isOwn && (
+            <button
+              onClick={(e)=>{ e.stopPropagation(); handleBookmark(); }}
+              style={{
+                position:"absolute",
+                top:10, right: (postBanner || isOwn || isHot) ? 75 : 10,
+                width:24, height:24,
+                background:"transparent",
+                border:"none",
+                cursor:"pointer",
+                color: bookmarked ? c.gold : c.sub,
+                transform: bmarkAnim ? "scale(1.3)" : "scale(1)",
+                transition:"all 0.2s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                zIndex: 2,
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
               </svg>
-              <div style={{ position:"absolute", bottom:6, left:8, background:"rgba(0,0,0,0.65)", borderRadius:6, padding:"3px 8px" }}>
-                <span style={{ fontSize:10, fontWeight:600, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{deal.place}</span>
-              </div>
-              <div style={{ position:"absolute", top:6, right:8, background:c.accent, border:"none", borderRadius:6, padding:"3px 8px", cursor:"pointer" }}>
-                <span style={{ fontSize:9, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>Open Maps</span>
-              </div>
-            </div>
-          </button>
-        )}
-
-        {/* Post-reveal action strip — appears after a reveal (or for own posts) */}
-        {effectiveClaimed && !isOwn && (
-          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:10, padding:"8px 10px", background:`${c.accent}08`, border:`1px dashed ${c.accent}33`, borderRadius:12, animation:"slideDown 0.35s cubic-bezier(0.34,1.2,0.64,1) both" }}>
-            <span style={{ fontSize:10, fontWeight:700, color:c.accent, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap", marginRight:2 }}>Helpful?</span>
-            <button onClick={()=>handleVote("up")} title="Yes, helpful" style={{ width:30, height:30, background:vote==="up"?c.accent:"transparent", border:`1.5px solid ${vote==="up"?c.accent:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={vote==="up"?"#FFFFFF":c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.41-7.41A2 2 0 0 1 13.07 2H14a2 2 0 0 1 2 2v1.88z"/></svg>
             </button>
-            <button onClick={()=>handleVote("down")} title="Not helpful" style={{ width:30, height:30, background:vote==="down"?c.sub:"transparent", border:`1.5px solid ${vote==="down"?c.sub:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={vote==="down"?"#FFFFFF":c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14V2"/><path d="M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.41 7.41A2 2 0 0 1 10.93 22H10a2 2 0 0 1-2-2v-1.88z"/></svg>
-            </button>
-            <button onClick={()=>handleBookmark()} title={bookmarked?"Saved":"Save"} style={{ width:30, height:30, background:bookmarked?c.accent:"transparent", border:`1.5px solid ${bookmarked?c.accent:c.border}`, borderRadius:9, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill={bookmarked?"#FFFFFF":"none"} stroke={bookmarked?"#FFFFFF":c.sub} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-            </button>
-            <button onClick={()=>onPostBetter && onPostBetter(deal)} style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5, background:c.accent, border:"none", borderRadius:9, padding:"7px 12px", cursor:"pointer" }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-              <span style={{ fontSize:11, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}>Better price?</span>
-            </button>
-          </div>
-        )}
-
-        {/* Action bar — up/down are DISPLAY-ONLY stat chips. Voting happens via the "Helpful?" strip after reveal. */}
-        <div style={{ display:"flex", alignItems:"center", gap:7, position:"relative" }}>
-          <div title="Helpful votes" style={{ display:"flex", alignItems:"center", gap:4, background:vote==="up"?`${c.accent}18`:"transparent", border:`1px solid ${vote==="up"?c.accent:c.border}`, borderRadius:20, padding:"6px 12px" }}>
-            <Ico.Up s={13} c={vote==="up"?c.accent:c.sub}/>
-            <span style={{ fontSize:12, fontWeight:vote==="up"?700:400, color:vote==="up"?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{upCount}</span>
-          </div>
-          <div title="Not helpful votes" style={{ display:"flex", alignItems:"center", gap:4, background:vote==="down"?`${c.sub}18`:"transparent", border:`1px solid ${vote==="down"?c.sub:c.border}`, borderRadius:20, padding:"6px 12px" }}>
-            <Ico.Down s={13} c={vote==="down"?c.text:c.sub}/>
-            <span style={{ fontSize:12, color:vote==="down"?c.text:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{downCount}</span>
-          </div>
-          {/* Comments — opens post detail with focus on comments */}
-          <button onClick={()=>onOpenPost(deal)} title="Comments" style={{ display:"flex", alignItems:"center", gap:4, background:"transparent", border:`1px solid ${c.border}`, borderRadius:20, padding:"6px 12px", cursor:"pointer", transition:"all 0.15s" }}
-            onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
-            onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-            <span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{commentCount}</span>
-          </button>
-          <div style={{ flex:1 }}/>
-          {/* Bookmark */}
-          <button onClick={handleBookmark} style={{ width:34, height:34, background:bookmarked?`${c.accent}15`:"transparent", border:`1px solid ${bookmarked?c.accent:c.border}`, borderRadius:"50%", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s", animation:bmarkAnim?"bookmarkPop 0.55s cubic-bezier(0.34,1.56,0.64,1) both":"none" }}>
-            <Ico.Book s={14} c={bookmarked?c.accent:c.sub}/>
-          </button>
-          {/* Share */}
-          <button onClick={()=>setShowShare(true)} style={{ width:34, height:34, background:"transparent", border:`1px solid ${c.border}`, borderRadius:"50%", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}
-            onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"44"}
-            onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
-          >
-            <Ico.Share s={14} c={c.sub}/>
-          </button>
-          {/* More menu — Report / Block / Delete */}
-          <button onClick={()=>setShowMoreMenu(true)} style={{ width:34, height:34, background:"transparent", border:`1px solid ${c.border}`, borderRadius:"50%", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}
-            onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"44"}
-            onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill={c.sub}><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
-          </button>
-
-          {/* More menu modal */}
-          {showMoreMenu && (
-            <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(0,0,0,0.55)", backdropFilter:"blur(2px)", display:"flex", alignItems:"flex-end" }} onClick={()=>setShowMoreMenu(false)}>
-              <div style={{ background:c.bg, borderRadius:"22px 22px 0 0", padding:"20px 18px 28px", width:"100%", animation:"slideUp 0.3s cubic-bezier(0.34,1.2,0.64,1) both" }} onClick={e=>e.stopPropagation()}>
-                <div style={{ display:"flex", justifyContent:"center", marginBottom:16 }}>
-                  <div style={{ width:36, height:4, borderRadius:2, background:c.muted }}/>
-                </div>
-                {(isOwn || isAdmin) && (
-                  <button onClick={()=>{ setShowMoreMenu(false); setShowDeleteConfirm(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
-                    <div style={{ width:36, height:36, borderRadius:10, background:"#DC262615", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 01-2 2H9a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:14, fontWeight:700, color:"#DC2626", fontFamily:"'DM Sans',sans-serif" }}>{isOwn ? "Delete this post" : "Delete (admin)"}</div>
-                      <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{isOwn ? "Permanently remove from the feed" : `Remove @${deal.user.username}'s post from the feed`}</div>
-                    </div>
-                  </button>
-                )}
-                {!isOwn && (
-                  <>
-                    <button onClick={()=>{ setShowMoreMenu(false); setShowReport(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
-                      <div style={{ width:36, height:36, borderRadius:10, background:`${c.accent}15`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-                      </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Report this post</div>
-                        <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Spam, fake price, offensive content</div>
-                      </div>
-                    </button>
-                    <button onClick={()=>{ setShowMoreMenu(false); if (onBlockUser) onBlockUser(deal.user); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, padding:"14px 12px", background:"transparent", border:"none", borderRadius:12, cursor:"pointer", textAlign:"left" }}>
-                      <div style={{ width:36, height:36, borderRadius:10, background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                      </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Block @{deal.user.username}</div>
-                        <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Hide their posts from your feed</div>
-                      </div>
-                    </button>
-                  </>
-                )}
-                <button onClick={()=>setShowMoreMenu(false)} style={{ width:"100%", padding:"14px", background:"transparent", border:`1px solid ${c.border}`, borderRadius:12, marginTop:10, fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
-              </div>
-            </div>
           )}
-
-          {/* Delete confirmation modal */}
-          {showDeleteConfirm && (
-            <div style={{ position:"fixed", inset:0, zIndex:201, background:"rgba(0,0,0,0.6)", backdropFilter:"blur(3px)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={()=>setShowDeleteConfirm(false)}>
-              <div style={{ background:c.bg, borderRadius:18, padding:"22px 20px", maxWidth:340, width:"100%", animation:"fu 0.25s ease both" }} onClick={e=>e.stopPropagation()}>
-                <div style={{ fontSize:17, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Delete this post?</div>
-                <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, marginBottom:16 }}>This will permanently remove your post from the feed. You can't undo this.</div>
-                <div style={{ display:"flex", gap:10 }}>
-                  <button onClick={()=>setShowDeleteConfirm(false)} style={{ flex:1, padding:"12px 0", background:"transparent", border:`1.5px solid ${c.border}`, borderRadius:11, fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
-                  <button onClick={async ()=>{ setShowDeleteConfirm(false); if (onDeleteOwnPost) await onDeleteOwnPost(deal.id); }} style={{ flex:1, padding:"12px 0", background:"#DC2626", border:"none", borderRadius:11, fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Delete</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Report modal */}
-          {showReport && (
-            <div style={{ position:"fixed", inset:0, zIndex:201, background:"rgba(0,0,0,0.6)", backdropFilter:"blur(3px)", display:"flex", alignItems:"flex-end" }} onClick={()=>setShowReport(false)}>
-              <div style={{ background:c.bg, borderRadius:"22px 22px 0 0", padding:"22px 20px 28px", width:"100%", animation:"slideUp 0.3s cubic-bezier(0.34,1.2,0.64,1) both" }} onClick={e=>e.stopPropagation()}>
-                <div style={{ display:"flex", justifyContent:"center", marginBottom:14 }}>
-                  <div style={{ width:36, height:4, borderRadius:2, background:c.muted }}/>
-                </div>
-                <div style={{ fontSize:17, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:5 }}>Report this post</div>
-                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:16 }}>Pick a reason. BKM admins will review it.</div>
-                {[
-                  { key:"spam",        label:"Spam or promotional",    sub:"Repeated posts, ads, scams" },
-                  { key:"fake",        label:"Fake or wrong price",     sub:"Doesn't match reality" },
-                  { key:"offensive",   label:"Offensive content",       sub:"Hate speech, harassment" },
-                  { key:"impersonate", label:"Impersonating someone",   sub:"Pretending to be a real business or person" },
-                  { key:"other",       label:"Something else",          sub:"" },
-                ].map(r => (
-                  <button key={r.key} onClick={async ()=>{
-                    setShowReport(false);
-                    if (onReportPost) await onReportPost(deal, r.key);
-                  }} style={{ width:"100%", display:"flex", alignItems:"flex-start", gap:10, padding:"12px 12px", background:"transparent", border:`1px solid ${c.border}`, borderRadius:11, marginBottom:8, cursor:"pointer", textAlign:"left", transition:"border-color 0.15s" }}
-                    onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
-                    onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
-                  >
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{r.label}</div>
-                      {r.sub && <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{r.sub}</div>}
-                    </div>
-                    <span style={{ fontSize:14, color:c.sub }}>›</span>
-                  </button>
-                ))}
-                <button onClick={()=>setShowReport(false)} style={{ width:"100%", padding:"12px", background:"transparent", border:"none", marginTop:6, fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Cancel</button>
-              </div>
-            </div>
-          )}
-
-          {/* Share sheet */}
-          {showShare && (() => {
-            const shareUrl  = "https://bkm-app.vercel.app";
-            const shareText = `${deal.user.username} found a deal at ${deal.place} (${deal.district}) on BKM — ${deal.subject.slice(0,80)}${deal.subject.length>80?"...":""}\n\nBKM — Community-powered price discovery in Qatar. We do it so you don't have to.\n\n${shareUrl}`;
-            const grantShareBonus = () => {
-              sfx.whoosh();
-              const earned = tryShareBonus();
-              if (earned > 0 && onShareBonus) onShareBonus(earned);
-            };
-            const handleNative = async () => {
-              setShowShare(false);
-              if (navigator.share) {
-                try { await navigator.share({ title:`BKM — ${deal.place}`, text:shareText, url:shareUrl }); grantShareBonus(); } catch(e){}
-              } else {
-                navigator.clipboard?.writeText(shareText); grantShareBonus();
-              }
-            };
-            const handleWhatsApp = () => { setShowShare(false); window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`,"_blank"); grantShareBonus(); };
-            const handleCopy     = () => { setShowShare(false); navigator.clipboard?.writeText(shareText); grantShareBonus(); };
-            const handleX        = () => { setShowShare(false); window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,"_blank"); grantShareBonus(); };
-            return (
-              <>
-                <div style={{ position:"fixed", inset:0, zIndex:200 }} onClick={()=>setShowShare(false)}/>
-                <div style={{ position:"absolute", bottom:"calc(100% + 8px)", right:0, zIndex:201, background:c.surface, border:`1px solid ${c.border}`, borderRadius:16, padding:"10px 0", boxShadow:"0 -4px 24px rgba(0,0,0,0.18)", minWidth:200, animation:"shareSlide 0.2s ease both" }}>
-                  <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.12em", textTransform:"uppercase", padding:"0 14px 8px", fontFamily:"'DM Sans',sans-serif" }}>Share via</div>
-                  {[
-                    { label:"Share...",   action:handleNative },
-                    { label:"WhatsApp",   action:handleWhatsApp },
-                    { label:"Copy Link",  action:handleCopy },
-                    { label:"X / Twitter",action:handleX },
-                  ].map(opt=>(
-                    <button key={opt.label} onClick={opt.action} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 14px", background:"none", border:"none", cursor:"pointer", textAlign:"left", transition:"background 0.12s" }}
-                      onMouseOver={e=>e.currentTarget.style.background=c.muted}
-                      onMouseOut={e=>e.currentTarget.style.background="none"}
-                    >
-                      <span style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{opt.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            );
-          })()}
         </div>
-
       </div>
-    </RankCard>
+    </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FEED
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FEED
-// ─────────────────────────────────────────────────────────────────────────────
+// Original DealCard return preserved below for reference — unreachable.
+// (Kept temporarily during the v1.0 design transition.)
+function __LEGACY_DEAL_CARD_BODY__() { return null; }
 function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false, onNotifications, unreadCount=0 }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||[]);
@@ -3308,6 +3253,52 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             })}
           </div>
         </div>
+
+        {/* ─── v1.0 Fresh from people you follow ─── */}
+        {(() => {
+          const followsArr = Array.isArray(userFollows) ? userFollows : (userFollows ? Array.from(userFollows) : []);
+          const followedSet = new Set(followsArr);
+          // Deals from people you follow, freshest first; collapse to one entry per user
+          const seenUsers = new Set();
+          const freshFromFollows = [];
+          for (const d of (deals || [])) {
+            if (!d?.user?.id) continue;
+            if (!followedSet.has(d.user.id)) continue;
+            if (seenUsers.has(d.user.id)) continue;
+            seenUsers.add(d.user.id);
+            freshFromFollows.push(d);
+            if (freshFromFollows.length >= 12) break;
+          }
+          if (freshFromFollows.length === 0) return null;
+          return (
+            <div style={{ padding:"0 0 12px" }}>
+              <div style={{ padding:"0 20px 10px", display:"flex", alignItems:"baseline", justifyContent:"space-between" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:15.5, fontWeight:700, letterSpacing:"-0.02em", color:c.text }}>
+                  <span style={{ color: c.goldSoft || c.gold, fontStyle:"italic", marginRight:2, fontWeight:500 }}>Fresh</span> from people you follow
+                </div>
+                <button onClick={()=>setFeedFilter("following")} style={{ background:"none", border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontSize:10, color:c.sub, letterSpacing:"0.08em", textTransform:"uppercase", fontWeight:500 }}>
+                  All →
+                </button>
+              </div>
+              <div style={{ display:"flex", gap:12, padding:"0 20px 4px", overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch" }}>
+                {freshFromFollows.map(d => (
+                  <button
+                    key={d.user.id}
+                    onClick={()=>onUserTap && onUserTap(d.user)}
+                    style={{ background:"none", border:"none", padding:0, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:5, flexShrink:0, width:60 }}>
+                    <div style={{ position:"relative", width:54, height:54 }}>
+                      <Avatar user={d.user} size={50}/>
+                      <div style={{ position:"absolute", bottom:-1, right:-1, width:13, height:13, background:c.gold, borderRadius:"50%", border:`2.5px solid ${c.bg}` }}/>
+                    </div>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:500, color:c.text2 || c.sub, letterSpacing:"-0.005em", maxWidth:"100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {d.user.username}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Deal stack */}
         <div style={{ padding:"0 20px", display:"flex", flexDirection:"column", gap:14 }}>
