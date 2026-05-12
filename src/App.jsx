@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.9 · ACTUAL FIX · postType + wasPrice now reach Firestore";
+const APP_VERSION = "v1.1.0 · Rooms discover says Join · reveal icon = energy bolt";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2681,16 +2681,15 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               onMouseOut={e => { e.currentTarget.style.borderColor = c.border; }}
             >
               <div style={{
-                width:24, height:24,
+                width:26, height:26,
                 display:"flex", alignItems:"center", justifyContent:"center",
                 background: c.surface3 || c.muted,
                 borderRadius: 7,
                 color: c.gold,
                 flexShrink: 0,
               }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-                  <rect x="3" y="11" width="18" height="11" rx="2"/>
-                  <path d="M7 11V7a5 5 0 0110 0v4"/>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/>
                 </svg>
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0 }}>
@@ -2699,7 +2698,12 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   Tap to reveal {items.length > 1 ? `· ${items.length} items` : "→"}
                 </span>
               </div>
-              <span style={{ flexShrink:0, fontSize:10.5, fontWeight:800, color:c.gold, letterSpacing:"0.04em" }}>1◆</span>
+              <span style={{ flexShrink:0, display:"inline-flex", alignItems:"center", gap:3, fontSize:10.5, fontWeight:800, color:c.gold, letterSpacing:"0.04em" }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/>
+                </svg>
+                1
+              </span>
             </button>
           ) : (
             // ─── REVEALED ───
@@ -6434,6 +6438,8 @@ function CommunityCard({ community, theme, isMember, onTap }) {
 function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
   const [communities, setCommunities] = useState([]);
   const [myCommunities, setMyCommunities] = useState(new Map());
+  // Pillars are display-only simulations. Track local "joined" state so the button can flip to ✓ Joined.
+  const [joinedPillars, setJoinedPillars] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all"); // all | mine | category-key
   const [search, setSearch] = useState("");
@@ -6608,9 +6614,38 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
                               {freshToday > 0 && <span style={{ color:c.gold, marginLeft:5, fontWeight:600 }}>· {freshToday} fresh today</span>}
                             </div>
                           </div>
-                          <button onClick={()=>onOpenCommunity && onOpenCommunity(co.id)} style={{ padding:"6px 14px", background:c.surface3||c.muted, border:`1px solid ${c.border}`, borderRadius:100, fontSize:11, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
-                            Open
-                          </button>
+                          {(() => {
+                            const isPillar = !!co._pillar;
+                            const isJoined = isPillar ? joinedPillars.has(co.id) : myCommunities.has(co.id);
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isJoined) { onOpenCommunity && onOpenCommunity(co.id); return; }
+                                  if (isPillar) {
+                                    setJoinedPillars(prev => { const n = new Set(prev); n.add(co.id); return n; });
+                                  } else if (fbAuth.currentUser) {
+                                    fbJoinCommunity(co.id, fbAuth.currentUser.uid).catch(()=>{});
+                                  }
+                                }}
+                                style={{
+                                  padding: "6px 14px",
+                                  background: isJoined ? (c.surface3 || c.muted) : `linear-gradient(135deg, ${c.gold}, ${c.accent})`,
+                                  border: isJoined ? `1px solid ${c.border}` : "none",
+                                  borderRadius: 100,
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  color: isJoined ? c.text : c.btnText,
+                                  fontFamily: "'DM Sans',sans-serif",
+                                  cursor: "pointer",
+                                  letterSpacing: "0.04em",
+                                  boxShadow: isJoined ? "none" : `0 4px 12px ${c.gold}33`,
+                                }}
+                              >
+                                {isJoined ? "✓ Joined" : "Join"}
+                              </button>
+                            );
+                          })()}
                         </div>
                       );
                     })}
