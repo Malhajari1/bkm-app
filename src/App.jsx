@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.5 · streak counts daily logins · reveal pop+sweep animation";
+const APP_VERSION = "v1.0.6 · new expanded post · compose preview shows savings · DEAL chip on cards";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2495,11 +2495,14 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   const extraCount = Math.max(0, items.length - 1);
   // Deal/Tip awareness — populated when PostDeal writes postType/wasPrice (v1.0+).
   // Older posts without these fields naturally fall through as "tip" mode.
-  const nowNum  = Number(firstItem.p) || 0;
-  const wasNum  = Number(deal.wasPrice) || 0;
-  const isDeal  = deal.postType === "deal" && wasNum > 0 && nowNum > 0 && wasNum > nowNum;
-  const savePct = isDeal ? Math.round(((wasNum - nowNum) / wasNum) * 100) : 0;
-  const saveAmt = isDeal ? (wasNum - nowNum) : 0;
+  const nowNum   = Number(firstItem.p) || 0;
+  // Total across ALL items — used for multi-item deal math
+  const nowTotal = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
+  const wasNum   = Number(deal.wasPrice) || 0;
+  // isDeal compares wasNum against the TOTAL of items, not just the first
+  const isDeal   = deal.postType === "deal" && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal;
+  const savePct  = isDeal ? Math.round(((wasNum - nowTotal) / wasNum) * 100) : 0;
+  const saveAmt  = isDeal ? (wasNum - nowTotal) : 0;
 
   return (
     <div style={{ position:"relative", marginBottom:10 }}>
@@ -2623,6 +2626,24 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             {deal.place && (
               <span style={{ fontSize:11, color:c.text2 || c.sub, fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>
                 {deal.place}
+              </span>
+            )}
+            {/* DEAL pill — visible even on locked cards so users know it's a deal-type post */}
+            {isDeal && (
+              <span style={{
+                display:"inline-flex", alignItems:"center", gap:4,
+                padding: "2px 6px",
+                background: `${c.positive}22`,
+                border: `1px solid ${c.positive}55`,
+                borderRadius: 4,
+                fontFamily: "'DM Sans',sans-serif",
+                fontSize: 8.5,
+                fontWeight: 800,
+                color: c.positive,
+                letterSpacing: "0.14em",
+              }}>
+                <span style={{ fontWeight:900, fontSize:9 }}>↓</span>
+                DEAL · {savePct}%
               </span>
             )}
             <span style={{
@@ -2806,14 +2827,29 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                           + {items.length - 4} more in post
                         </div>
                       )}
-                      {/* Total */}
+                      {/* Total + was/save for deals */}
                       {(() => {
                         const total = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
                         return total > 0 ? (
-                          <div style={{ marginTop:4, paddingTop:4, borderTop:`1px dashed ${c.gold}55`, display:"flex", justifyContent:"space-between", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700 }}>
-                            <span style={{ color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase", fontSize:9 }}>Total</span>
-                            <span style={{ color:c.text, letterSpacing:"-0.02em" }}>{total.toFixed(0)}<span style={{ fontSize:9, color:c.sub, marginLeft:2 }}>QAR</span></span>
-                          </div>
+                          <>
+                            <div style={{ marginTop:4, paddingTop:4, borderTop:`1px dashed ${c.gold}55`, display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, flexWrap:"wrap", gap:6 }}>
+                              <span style={{ color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase", fontSize:9 }}>Total</span>
+                              <span style={{ display:"flex", alignItems:"baseline", gap:6, flexWrap:"wrap" }}>
+                                {isDeal && (
+                                  <span style={{ fontSize:10, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {wasNum}</span>
+                                )}
+                                <span style={{ color:c.text, letterSpacing:"-0.02em" }}>{total.toFixed(0)}<span style={{ fontSize:9, color:c.sub, marginLeft:2 }}>QAR</span></span>
+                                {isDeal && (
+                                  <span style={{ fontSize:8.5, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"2px 5px", borderRadius:3, letterSpacing:"0.04em" }}>−{savePct}%</span>
+                                )}
+                              </span>
+                            </div>
+                            {isDeal && saveAmt > 0 && (
+                              <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.positive, marginTop:3, fontWeight:500, textAlign:"right" }}>
+                                Saves {saveAmt.toFixed(0)} QAR
+                              </div>
+                            )}
+                          </>
                         ) : null;
                       })()}
                     </div>
@@ -3767,15 +3803,34 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
                 {subject || "Your find title appears here"}
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:6, alignItems:"center", padding:"6px 8px", background:`linear-gradient(135deg, ${c.gold}1A, ${c.accent}0A)`, border:`1px solid ${c.gold}38`, borderRadius:8 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <div style={{ width:20, height:20, background:c.gold, color:c.bg, borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+                  <div style={{ width:20, height:20, background:c.gold, color:c.bg, borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>
                   </div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
-                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:7.5, letterSpacing:"0.16em", textTransform:"uppercase", color:c.gold, fontWeight:700 }}>Revealed</span>
-                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:700, letterSpacing:"-0.02em", color:c.text }}>
-                      {(items[0]?.p) ? items[0].p : "—"}<span style={{ fontSize:8, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0 }}>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:7.5, letterSpacing:"0.16em", textTransform:"uppercase", color:c.gold, fontWeight:700 }}>
+                      {postType === "deal" ? "Deal · Revealed" : "Revealed"}
                     </span>
+                    <div style={{ display:"flex", alignItems:"baseline", gap:5, flexWrap:"wrap" }}>
+                      {(items[0]?.n) && (
+                        <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:600, color:c.text, letterSpacing:"-0.01em", wordBreak:"break-word" }}>{items[0].n}</span>
+                      )}
+                      {(items[0]?.n) && (items[0]?.p) && <span style={{ color:c.sub, fontSize:9 }}>·</span>}
+                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:800, letterSpacing:"-0.02em", color:c.text, lineHeight:1 }}>
+                        {(items[0]?.p) ? items[0].p : "—"}<span style={{ fontSize:8, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span>
+                      </span>
+                      {postType === "deal" && savings > 0 && (
+                        <>
+                          <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {wasPrice}</span>
+                          <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"1.5px 5px", borderRadius:3, letterSpacing:"0.04em" }}>−{savePct}%</span>
+                        </>
+                      )}
+                    </div>
+                    {postType === "deal" && savings > 0 && (
+                      <span style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:9.5, color:c.positive, fontWeight:500 }}>
+                        Saves {savings.toFixed(0)} QAR
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3879,7 +3934,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
           </div>
         </div>
 
-        {/* Items — list of {name, price} rows */}
+        {/* Items — name full-width on top, prices on row beneath */}
         <div style={{ padding:"0 16px 14px" }}>
           <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
             <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
@@ -3894,41 +3949,82 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
             </button>
           </div>
 
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {items.map((item, idx) => (
-              <div key={idx} style={{ display:"grid", gridTemplateColumns: items.length > 1 ? "1fr 96px 32px" : "1fr 96px", gap:5, alignItems:"center" }}>
-                <input
-                  value={item.n}
-                  onChange={e=>updateItem(idx, "n", e.target.value)}
-                  placeholder={idx === 0 ? "Item name (e.g. Chicken kabsa)" : "Item name"}
-                  style={{ padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
-                  onFocus={e=>e.target.style.borderColor=c.gold}
-                  onBlur={e=>e.target.style.borderColor=c.border}
-                />
-                <div style={{ position:"relative" }}>
-                  <input
-                    value={item.p}
-                    onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
-                    placeholder="0"
-                    inputMode="decimal"
-                    style={{ width:"100%", padding:"11px 38px 11px 13px", background:c.surface, border:`1.5px solid ${(idx===0&&postType==="tip")||postType==="deal" && idx===0 ? c.gold : c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
-                    onFocus={e=>e.target.style.borderColor=c.gold}
-                    onBlur={e=>e.target.style.borderColor=idx===0?c.gold:c.border}
-                  />
-                  <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+          <div style={{ display:"flex", flexDirection:"column", gap:items.length > 1 ? 12 : 8 }}>
+            {items.map((item, idx) => {
+              const isFirst = idx === 0;
+              const isSingle = items.length === 1;
+              // Show was+now side-by-side ONLY for the first item in single-item deal mode.
+              // Multi-item posts use a single was-total field below the items list.
+              const showWasInline = isFirst && isSingle && postType === "deal";
+              return (
+                <div key={idx} style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                  {/* Item name — alone on its row, full width */}
+                  <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+                    <input
+                      value={item.n}
+                      onChange={e=>updateItem(idx, "n", e.target.value)}
+                      placeholder={isFirst ? "Item name (e.g. Chicken kabsa)" : "Item name"}
+                      style={{ flex:1, padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
+                      onFocus={e=>e.target.style.borderColor=c.gold}
+                      onBlur={e=>e.target.style.borderColor=c.border}
+                    />
+                    {items.length > 1 && (
+                      <button
+                        onClick={()=>removeItem(idx)}
+                        type="button"
+                        aria-label="Remove item"
+                        style={{ width:36, height:38, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Price row — was+now side by side if single deal, else just now */}
+                  {showWasInline ? (
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                      <div style={{ position:"relative" }}>
+                        <input
+                          value={wasPrice}
+                          onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
+                          placeholder="0"
+                          inputMode="decimal"
+                          style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:600, outline:"none" }}
+                          onFocus={e=>e.target.style.borderColor=c.gold}
+                          onBlur={e=>e.target.style.borderColor=c.border}
+                        />
+                        <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase" }}>was</span>
+                      </div>
+                      <div style={{ position:"relative" }}>
+                        <input
+                          value={item.p}
+                          onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
+                          placeholder="0"
+                          inputMode="decimal"
+                          style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
+                          onFocus={e=>e.target.style.borderColor=c.gold}
+                          onBlur={e=>e.target.style.borderColor=c.gold}
+                        />
+                        <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase" }}>now</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ position:"relative", maxWidth: items.length > 1 ? "none" : 220 }}>
+                      <input
+                        value={item.p}
+                        onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
+                        placeholder={postType === "tip" ? "How much is it?" : "Price"}
+                        inputMode="decimal"
+                        style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1.5px solid ${isFirst ? c.gold : c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
+                        onFocus={e=>e.target.style.borderColor=c.gold}
+                        onBlur={e=>e.target.style.borderColor=isFirst?c.gold:c.border}
+                      />
+                      <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+                    </div>
+                  )}
                 </div>
-                {items.length > 1 && (
-                  <button
-                    onClick={()=>removeItem(idx)}
-                    type="button"
-                    aria-label="Remove item"
-                    style={{ width:32, height:36, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Multi-item live total */}
@@ -3940,17 +4036,25 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
               </span>
             </div>
           )}
+
+          {/* Auto savings pill — shows under items when deal is profitable */}
+          {postType === "deal" && savings > 0 && (
+            <div style={{ marginTop:10, display:"inline-flex", alignItems:"center", gap:6, padding:"7px 13px", background:`${c.positive}24`, border:`1px solid ${c.positive}55`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:800, color:c.positive }}>
+              <span style={{ fontSize:13, fontWeight:900 }}>↓</span>
+              Save {savings.toFixed(0)} QAR · {savePct}% off
+            </div>
+          )}
         </div>
 
-        {/* Was-total (Deal mode only) — applies to all items combined */}
-        {postType === "deal" && (
+        {/* Was-total for MULTI-item deals (single-item deals show was inline above) */}
+        {postType === "deal" && validItems.length > 1 && (
           <div style={{ padding:"0 16px 14px" }}>
             <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
               <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
-                Was price{validItems.length > 1 ? " · total" : ""} <span style={{ color:c.gold }}>·</span>
+                Was price · total <span style={{ color:c.gold }}>·</span>
               </span>
             </div>
-            <div style={{ position:"relative", maxWidth:200 }}>
+            <div style={{ position:"relative", maxWidth:220 }}>
               <input
                 value={wasPrice}
                 onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
@@ -3962,14 +4066,6 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
               />
               <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
             </div>
-
-            {/* Auto savings pill */}
-            {savings > 0 && (
-              <div style={{ marginTop:10, display:"inline-flex", alignItems:"center", gap:6, padding:"7px 13px", background:`${c.positive}24`, border:`1px solid ${c.positive}55`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:800, color:c.positive }}>
-                <span style={{ fontSize:13, fontWeight:900 }}>↓</span>
-                Save {savings.toFixed(0)} QAR · {savePct}% off
-              </div>
-            )}
           </div>
         )}
 
@@ -5024,113 +5120,443 @@ function CommentsSection({ dealId, theme, lang }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST DETAIL — full-page view
 // ─────────────────────────────────────────────────────────────────────────────
-function PostDetail({ deal, theme, lang, onBack, onPostHere }) {
+function PostDetail({ deal, theme, lang, onBack, onPostHere, vote, onVote, bookmarked, onBookmark, isAdmin=false, onReportPost, onBlockUser, onDeleteOwnPost }) {
   const [on, setOn] = useState(false);
+  const [showMoreMenu, setShowMoreMenu]   = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const c = TH[theme];
   const PM = PLATFORM_META[deal.platform] || PLATFORM_META.store;
   useEffect(()=>{ setTimeout(()=>setOn(true),60); },[]);
   const a = d => on?{animation:`fu .4s ease ${d}s both`}:{opacity:0};
 
+  // Derived deal numbers — match DealCard logic
+  const items     = Array.isArray(deal.items) ? deal.items : [];
+  const firstItem = items[0] || { n: deal.subject || "Find", p: 0 };
+  const nowTotal  = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
+  const wasNum    = Number(deal.wasPrice) || 0;
+  const isDeal    = deal.postType === "deal" && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal;
+  const savePct   = isDeal ? Math.round(((wasNum - nowTotal) / wasNum) * 100) : 0;
+  const saveAmt   = isDeal ? (wasNum - nowTotal) : 0;
+
+  // Category color
+  const catColor  = CATEGORY_COLORS[(deal.cat||"").toLowerCase()] || CATEGORY_COLORS[deal.cat] || c.gold;
+
+  // Vote stats
+  const upCount     = Number(deal.ups)   || 0;
+  const downCount   = Number(deal.downs) || 0;
+  const totalVotes  = upCount + downCount;
+  const helpfulPct  = totalVotes > 0 ? Math.round((upCount / totalVotes) * 100) : 0;
+
+  // Google Maps support — only physical (in-store) locations get the map + directions/call
+  const hasMapLocation = deal.platform === "store" || deal.platform === "other" || !PLATFORM_META[deal.platform];
+
+  // User context
+  const me = fbAuth.currentUser;
+  const isOwn = !!(me && deal.user?.id === me.uid);
+  const isFounder = !!deal.user?.founder;
+  const rank = deal.user?.rank || 0;
+
+  // ─── Handlers ───
+  const handleVoteHere = (dir) => { if (onVote) onVote(deal.id, dir); };
+  const handleBookmarkHere = () => { if (onBookmark) onBookmark(deal.id); };
+  const handleShare = () => {
+    setShowMoreMenu(false);
+    const url = (typeof window !== "undefined") ? `${window.location.origin}${window.location.pathname}?post=${deal.id}` : "";
+    const title = `Find on BKM: ${firstItem.n || deal.subject || "Hot find"}`;
+    const text  = `${deal.subject || firstItem.n || "Check out this find"} — by @${deal.user?.username || "user"}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        navigator.share({ title, text, url }).catch(()=>{});
+      } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).catch(()=>{});
+      }
+    } catch (e) {}
+  };
+  const handleOpenInMaps = () => {
+    const q = encodeURIComponent(`${deal.place || ""} ${deal.district || ""} Qatar`.trim());
+    if (typeof window !== "undefined") {
+      window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank");
+    }
+  };
+  const handleDirections = () => {
+    // Same destination, but Google routes to directions mode
+    const q = encodeURIComponent(`${deal.place || ""} ${deal.district || ""} Qatar`.trim());
+    if (typeof window !== "undefined") {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${q}`, "_blank");
+    }
+  };
+  // Call button — only enabled when deal has a phone number (currently no posts do)
+  const hasPhone = !!deal.phone;
+  const handleCall = () => {
+    if (!hasPhone || typeof window === "undefined") return;
+    window.location.href = `tel:${deal.phone}`;
+  };
+
+  // Time/posted helper
+  const timeStr = (() => {
+    const ts = deal.approvedAt || deal.createdAt;
+    if (!ts) return deal.time || deal.submitted || "Recently";
+    const date = ts?.toDate?.() || (ts instanceof Date ? ts : new Date(ts));
+    if (isNaN(date.getTime())) return "Recently";
+    const diff = (Date.now() - date.getTime()) / 1000;
+    if (diff < 60)     return "just now";
+    if (diff < 3600)   return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400)  return `${Math.floor(diff/3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff/86400)}d ago`;
+    return `${Math.floor(diff/604800)}w ago`;
+  })();
+
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-      <div style={{ flex:1, overflowY:"auto", padding:"8px 0 24px" }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:c.bg }}>
+      <div style={{ flex:1, overflowY:"auto", paddingBottom:24, position:"relative" }}>
 
-        <div style={{ padding:"4px 20px 16px", display:"flex", alignItems:"center", gap:12, ...a(0.04) }}>
-          <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 4px 4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <Avatar user={deal.user} size={28}/>
-            <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{deal.user.username}</span>
-            <span style={{ fontSize:9, fontWeight:700, color:RANK_COLORS[deal.user.rank], fontFamily:"'DM Sans',sans-serif" }}>{RANKS[deal.user.rank]?.label}</span>
+        {/* TOP BAR — sticky, back + bookmark/share/more */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px 6px", position:"sticky", top:0, background:`linear-gradient(180deg, ${c.bg} 88%, transparent)`, zIndex:10, ...a(0.04) }}>
+          <button onClick={onBack} aria-label="Back" style={{ width:32, height:32, borderRadius:"50%", background:c.surface, border:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style={{ display:"flex", gap:6, position:"relative" }}>
+            {!isOwn && (
+              <button onClick={handleBookmarkHere} aria-label="Bookmark" style={{ width:32, height:32, borderRadius:"50%", background: bookmarked ? `${c.gold}20` : c.surface, border:`1px solid ${bookmarked ? c.gold+"55" : c.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color: bookmarked ? c.gold : c.text }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+              </button>
+            )}
+            <button onClick={handleShare} aria-label="Share" style={{ width:32, height:32, borderRadius:"50%", background:c.surface, border:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+            </button>
+            <button onClick={()=>setShowMoreMenu(s=>!s)} aria-label="More" style={{ width:32, height:32, borderRadius:"50%", background: showMoreMenu ? c.surface3 : c.surface, border:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+            </button>
+
+            {/* More menu popup */}
+            {showMoreMenu && (
+              <>
+                <div onClick={()=>setShowMoreMenu(false)} style={{ position:"fixed", inset:0, zIndex:60 }}/>
+                <div style={{ position:"absolute", top:38, right:0, minWidth:180, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:"0 12px 32px rgba(0,0,0,0.35)", zIndex:61, overflow:"hidden" }}>
+                  {[
+                    { key:"share", label:"Share post", show:true, color:c.text, onClick: handleShare },
+                    { key:"report", label:"Report post", show: !isOwn && !!onReportPost, color:c.text, onClick: () => { setShowMoreMenu(false); onReportPost && onReportPost(deal); } },
+                    { key:"block", label:"Block user", show: !isOwn && !!onBlockUser, color:c.text, onClick: () => { setShowMoreMenu(false); onBlockUser && onBlockUser(deal.user); } },
+                    { key:"delete-own", label:"Delete post", show: isOwn && !!onDeleteOwnPost, color:"#EF4444", onClick: () => { setShowMoreMenu(false); setShowDeleteConfirm(true); } },
+                    { key:"delete-admin", label:"Delete (admin)", show: !isOwn && isAdmin && !!onDeleteOwnPost, color:"#EF4444", onClick: () => { setShowMoreMenu(false); setShowDeleteConfirm(true); } },
+                  ].filter(o => o.show).map((o, i, arr) => (
+                    <button key={o.key} onClick={o.onClick} style={{ display:"block", width:"100%", padding:"11px 14px", background:"transparent", border:"none", borderBottom: i < arr.length-1 ? `1px solid ${c.border}` : "none", cursor:"pointer", textAlign:"left", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:600, color:o.color }}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        <div style={{ padding:"0 20px", ...a(0.08) }}>
-          {/* Platform + location */}
-          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
-            <div style={{ display:"inline-flex", alignItems:"center", gap:3, background:`${PM.color}18`, border:`1px solid ${PM.color}44`, borderRadius:6, padding:"3px 8px" }}>
-              <div style={{ width:5, height:5, borderRadius:"50%", background:PM.color }}/>
-              <span style={{ fontSize:10, fontWeight:700, color:PM.color, fontFamily:"'DM Sans',sans-serif" }}>{PM.label}</span>
+        {/* HERO */}
+        <div style={{ padding:"12px 18px 14px", ...a(0.06) }}>
+          {/* Byline row */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+            <div style={{ flexShrink:0 }}>
+              <Avatar user={deal.user} size={36}/>
             </div>
-            <Ico.Pin s={10} c={c.accent}/>
-            <span style={{ fontSize:11, color:c.accent, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>{deal.district}</span>
-            <span style={{ fontSize:10, color:c.sub }}>· {deal.time || deal.submitted || "Recently"}</span>
-          </div>
-
-          {/* Store name */}
-          <div style={{ background:c.muted, borderRadius:10, padding:"8px 12px", marginBottom:12, display:"flex", alignItems:"center", gap:7 }}>
-            <Ico.Pin s={12} c={c.sub}/>
-            <div>
-              <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{deal.place}</div>
-              <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>{deal.address}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6, fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, color:c.text, letterSpacing:"-0.012em" }}>
+                @{deal.user?.username || "user"}
+                {isFounder && (
+                  <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:13, height:13, background:c.gold, color:c.bg, borderRadius:"50%", fontSize:8, fontWeight:900 }}>✓</span>
+                )}
+                <span style={{ color:c.sub, fontSize:11, fontWeight:500 }}>· tier {rank}</span>
+              </div>
+              <div style={{ fontSize:10.5, color:c.sub, marginTop:2, fontFamily:"'DM Sans',sans-serif" }}>
+                {timeStr}
+                {deal.claims > 0 && <> <span style={{ fontSize:4 }}>●</span> <span style={{ color:c.text2 || c.sub, fontWeight:600, fontFamily:"'JetBrains Mono',monospace", fontSize:10 }}>{deal.claims}</span> revealed</>}
+              </div>
             </div>
           </div>
 
-          {/* Full subject */}
-          <p style={{ fontSize:15, fontWeight:500, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, marginBottom:16 }}>{deal.subject}</p>
-
-          {/* Prices */}
-          <div style={{ background:c.muted, borderRadius:12, padding:"14px 14px", marginBottom:12 }}>
-            {deal.items.map((item,i)=>(
-              <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:i>0?10:0, marginTop:i>0?10:0, borderTop:i>0?`1px solid ${c.border}`:"none" }}>
-                <span style={{ fontSize:14, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.n}</span>
-                <span style={{ fontSize:16, fontWeight:800, color:c.accent, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>QAR {Number(item.p).toFixed(2)}</span>
-              </div>
-            ))}
+          {/* Title */}
+          <div style={{ fontSize:22, fontWeight:700, lineHeight:1.22, letterSpacing:"-0.025em", color:c.text, marginBottom:11, wordBreak:"break-word", fontFamily:"'DM Sans',sans-serif" }}>
+            {deal.subject}
           </div>
 
-          {/* Map */}
-          <div style={{ borderRadius:14, overflow:"hidden", border:`1px solid ${c.border}`, position:"relative", height:130, marginBottom:12 }}>
-            <svg width="100%" height="130" viewBox="0 0 335 130" preserveAspectRatio="xMidYMid slice">
-              <rect width="335" height="130" fill={theme==="dark"?"#1A1810":"#E8E0CC"}/>
-              {[0,1,2,3,4,5,6].map(i=><line key={`h${i}`} x1="0" y1={i*22} x2="335" y2={i*22} stroke={theme==="dark"?"#2A2010":"#D4C8A8"} strokeWidth="10"/>)}
-              {[0,1,2,3,4,5,6,7,8,9].map(i=><line key={`v${i}`} x1={i*38} y1="0" x2={i*38} y2="130" stroke={theme==="dark"?"#2A2010":"#D4C8A8"} strokeWidth="10"/>)}
-              {[[10,5,28,14],[50,5,28,14],[90,5,38,14],[140,5,50,14],[202,5,28,14],[242,5,45,14],[10,28,58,14],[80,28,40,14],[132,28,30,14],[174,28,48,14],[234,28,58,14],[10,51,30,14],[52,51,50,14],[114,51,28,14],[154,51,68,14],[234,51,70,14],[10,74,40,14],[62,74,58,14],[132,74,40,14],[184,74,60,14],[256,74,72,14],[10,97,80,14],[102,97,50,14],[164,97,60,14],[236,97,92,14]].map(([x,y,w,h],i)=>(
-                <rect key={i} x={x} y={y} width={w} height={h} rx="2" fill={theme==="dark"?"#241C0C":"#C8BC98"} opacity="0.7"/>
-              ))}
-              <circle cx="167" cy="65" r="14" fill={TH[theme].accent} opacity="0.2"/>
-              <circle cx="167" cy="65" r="8" fill={TH[theme].accent}/>
-              <circle cx="167" cy="65" r="4" fill="#FFFFFF"/>
-            </svg>
-            <div style={{ position:"absolute", bottom:8, left:10, background:"rgba(0,0,0,0.65)", borderRadius:8, padding:"4px 10px" }}>
-              <span style={{ fontSize:12, fontWeight:600, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{deal.place}</span>
+          {/* Place row */}
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <span style={{ padding:"3px 9px", background:c.surface3 || c.muted, border:`1px solid ${c.border}`, borderRadius:100, fontSize:10, fontWeight:700, color:c.text2 || c.text, letterSpacing:"0.06em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>
+              {deal.district || "Doha"}
+            </span>
+            {deal.place && (
+              <span style={{ fontSize:12.5, color:c.text, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>{deal.place}</span>
+            )}
+            <span style={{ color:c.sub, fontSize:4 }}>●</span>
+            <span style={{ fontSize:10, fontWeight:700, color:catColor, letterSpacing:"0.04em", textTransform:"lowercase", fontFamily:"'DM Sans',sans-serif" }}>
+              {deal.cat || "find"}
+            </span>
+          </div>
+        </div>
+
+        {/* THE FIND */}
+        <div style={{ padding:"16px 18px 0", ...a(0.10) }}>
+          <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:"0.22em", textTransform:"uppercase", color:c.sub, marginBottom:9, display:"flex", alignItems:"baseline", gap:7, fontFamily:"'DM Sans',sans-serif" }}>
+            The find {items.length > 1 && <span style={{ color:c.gold }}>·</span>} {items.length > 1 && <span style={{ color:c.text2, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", fontSize:10 }}>{items.length} items</span>}
+          </div>
+
+          <div style={{ background:`linear-gradient(135deg, ${c.gold}1A, ${c.accent}0F)`, border:`1px solid ${c.gold}38`, borderRadius:14, padding:"14px 14px 12px", position:"relative", overflow:"hidden" }}>
+            {/* Find head: REVEALED label + DEAL/TIP pill + source pill */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:8 }}>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:7, fontSize:8.5, fontWeight:800, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontFamily:"'DM Sans',sans-serif" }}>
+                <span style={{ width:22, height:22, background:c.gold, color:c.bg, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>
+                </span>
+                Revealed
+              </div>
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                {isDeal ? (
+                  <span style={{ padding:"3px 8px", background:c.gold, color:c.bg, borderRadius:4, fontSize:9, fontWeight:800, letterSpacing:"0.14em", fontFamily:"'DM Sans',sans-serif" }}>DEAL</span>
+                ) : (
+                  <span style={{ padding:"3px 8px", background:c.surface3 || c.muted, color:c.text2 || c.text, borderRadius:4, fontSize:9, fontWeight:800, letterSpacing:"0.14em", fontFamily:"'DM Sans',sans-serif" }}>TIP</span>
+                )}
+                {PM && (
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 8px", background:`${PM.color}22`, color:PM.color, border:`1px solid ${PM.color}44`, borderRadius:6, fontSize:9.5, fontWeight:700, letterSpacing:"0.06em", fontFamily:"'DM Sans',sans-serif" }}>
+                    <span style={{ width:5, height:5, borderRadius:"50%", background:PM.color }}/>
+                    {PM.label}
+                  </span>
+                )}
+              </div>
             </div>
-            <button onClick={()=>{
-              const q = encodeURIComponent(`${deal.place} ${deal.district || ""} Qatar`);
-              window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank");
-            }} style={{ position:"absolute", top:8, right:10, background:TH[theme].accent, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer" }}>
-              <span style={{ fontSize:11, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>Open in Maps</span>
-            </button>
-          </div>
 
-          {/* Stats */}
-          <div style={{ display:"flex", gap:16, padding:"0 4px" }}>
-            {[{label:"Ups",val:deal.ups},{label:"Revealed",val:deal.claims},{label:"Posted",val:deal.time||deal.submitted||"Recently"}].map(s=>(
-              <div key={s.label} style={{ textAlign:"center" }}>
-                <div style={{ fontSize:16, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
-                <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
+            {/* Items list */}
+            {items.length <= 1 ? (
+              // Single item — name + price on same baseline
+              <div style={{ display:"flex", alignItems:"baseline", gap:10, flexWrap:"wrap", padding:"4px 0 6px" }}>
+                <span style={{ fontSize:15, fontWeight:600, color:c.text, letterSpacing:"-0.01em", fontFamily:"'DM Sans',sans-serif", wordBreak:"break-word" }}>
+                  {firstItem.n || deal.subject || "Item"}
+                </span>
+                <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:22, fontWeight:800, color:c.text, letterSpacing:"-0.03em", lineHeight:1 }}>
+                  {Number(firstItem.p) || 0}<span style={{ fontSize:11, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                </span>
+                {isDeal && (
+                  <>
+                    <span style={{ fontSize:11.5, color:c.sub, textDecoration:"line-through", fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>was {wasNum}</span>
+                    <span style={{ fontSize:10, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"2px 6px", borderRadius:4, letterSpacing:"0.04em", fontFamily:"'DM Sans',sans-serif" }}>−{savePct}%</span>
+                  </>
+                )}
               </div>
-            ))}
-          </div>
-
-          {/* Comments + Cheers */}
-          <CommentsSection dealId={deal.id} theme={theme} lang={lang}/>
-
-          {/* Post about same location */}
-          <div style={{ marginTop:20 }}>
-            <button onClick={()=>onPostHere(deal)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, background:c.surface, border:`1.5px solid ${c.border}`, borderRadius:16, padding:"16px 16px", cursor:"pointer", textAlign:"left", transition:"border-color 0.2s" }}
-              onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
-              onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
-            >
-              <div style={{ width:38, height:38, borderRadius:10, background:`${c.accent}15`, border:`1px solid ${c.accent}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <Ico.Plus s={18} c={c.accent}/>
-              </div>
+            ) : (
+              // Multi-item list
               <div>
-                <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Found something different here?</div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>Post your own take about {deal.place.split(" ").slice(0,2).join(" ")}</div>
+                {items.map((it, i) => (
+                  <div key={i} style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:12, padding:"8px 0", borderBottom: i < items.length - 1 ? `1px solid rgba(224,163,62,0.16)` : "none" }}>
+                    <span style={{ fontSize:14, fontWeight:600, color:c.text, letterSpacing:"-0.01em", flex:1, wordBreak:"break-word", fontFamily:"'DM Sans',sans-serif" }}>
+                      {it.n || `Item ${i+1}`}
+                    </span>
+                    <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:14, fontWeight:700, color:c.text, whiteSpace:"nowrap", letterSpacing:"-0.015em" }}>
+                      {Number(it.p) || 0}<span style={{ fontSize:9.5, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                    </span>
+                  </div>
+                ))}
+
+                {/* Totals */}
+                <div style={{ marginTop:12, paddingTop:12, borderTop:`1.5px dashed rgba(224,163,62,0.32)`, display:"flex", flexDirection:"column", gap:5 }}>
+                  {isDeal && (
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>
+                      <span style={{ color:c.sub, fontWeight:500, textDecoration:"line-through" }}>Was</span>
+                      <span style={{ color:c.sub, textDecoration:"line-through", fontWeight:500 }}>{wasNum} QAR</span>
+                    </div>
+                  )}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif" }}>
+                    <span style={{ fontWeight:700, color:c.text, fontSize:13 }}>Total now</span>
+                    <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:22, fontWeight:800, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
+                      {nowTotal.toFixed(0)}<span style={{ fontSize:11, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                    </span>
+                  </div>
+                </div>
               </div>
-            </button>
+            )}
+
+            {/* Save strip — green band for deals */}
+            {isDeal && saveAmt > 0 && (
+              <div style={{ marginTop:12, padding:"10px 13px", background:`${c.positive}26`, border:`1px solid ${c.positive}72`, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                <span style={{ display:"flex", alignItems:"center", gap:7, fontSize:11, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase", color:c.positive, fontFamily:"'DM Sans',sans-serif" }}>
+                  <span style={{ width:18, height:18, background:c.positive, color:"#FFFFFF", borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:11 }}>↓</span>
+                  You save
+                </span>
+                <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:15, fontWeight:800, color:c.positive, letterSpacing:"-0.02em" }}>
+                  {saveAmt.toFixed(0)} QAR · {savePct}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Stats row — same as the existing PostDetail had */}
+          <div style={{ display:"flex", gap:18, padding:"12px 4px 0" }}>
+            <div style={{ flex:1, textAlign:"center" }}>
+              <div style={{ fontSize:17, fontWeight:800, color:c.text, letterSpacing:"-0.02em", fontFamily:"'DM Sans',sans-serif" }}>{upCount}</div>
+              <div style={{ fontSize:10, color:c.sub, marginTop:2, letterSpacing:"0.04em", fontFamily:"'DM Sans',sans-serif" }}>Helpful</div>
+            </div>
+            <div style={{ flex:1, textAlign:"center" }}>
+              <div style={{ fontSize:17, fontWeight:800, color:c.text, letterSpacing:"-0.02em", fontFamily:"'DM Sans',sans-serif" }}>{deal.claims || 0}</div>
+              <div style={{ fontSize:10, color:c.sub, marginTop:2, letterSpacing:"0.04em", fontFamily:"'DM Sans',sans-serif" }}>Revealed</div>
+            </div>
+            <div style={{ flex:1, textAlign:"center" }}>
+              <div style={{ fontSize:15, fontWeight:700, color:c.text, letterSpacing:"-0.02em", fontFamily:"'DM Sans',sans-serif" }}>{timeStr}</div>
+              <div style={{ fontSize:10, color:c.sub, marginTop:2, letterSpacing:"0.04em", fontFamily:"'DM Sans',sans-serif" }}>Posted</div>
+            </div>
           </div>
         </div>
+
+        {/* WHERE — conditional on Google Maps support */}
+        <div style={{ padding:"16px 18px 0", ...a(0.12) }}>
+          <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:"0.22em", textTransform:"uppercase", color:c.sub, marginBottom:9, fontFamily:"'DM Sans',sans-serif" }}>
+            Where
+          </div>
+
+          {hasMapLocation ? (
+            <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, overflow:"hidden" }}>
+              {/* Static map preview — same SVG pattern as previous PostDetail */}
+              <div style={{ position:"relative", height:130, overflow:"hidden" }}>
+                <svg width="100%" height="130" viewBox="0 0 335 130" preserveAspectRatio="xMidYMid slice">
+                  <rect width="335" height="130" fill={theme==="dark"?"#1A1810":"#E8E0CC"}/>
+                  {[0,1,2,3,4,5,6].map(i=><line key={`h${i}`} x1="0" y1={i*22} x2="335" y2={i*22} stroke={theme==="dark"?"#2A2010":"#D4C8A8"} strokeWidth="10"/>)}
+                  {[0,1,2,3,4,5,6,7,8,9].map(i=><line key={`v${i}`} x1={i*38} y1="0" x2={i*38} y2="130" stroke={theme==="dark"?"#2A2010":"#D4C8A8"} strokeWidth="10"/>)}
+                  {[[10,5,28,14],[50,5,28,14],[90,5,38,14],[140,5,50,14],[202,5,28,14],[242,5,45,14],[10,28,58,14],[80,28,40,14],[132,28,30,14],[174,28,48,14],[234,28,58,14],[10,51,30,14],[52,51,50,14],[114,51,28,14],[154,51,68,14],[234,51,70,14],[10,74,40,14],[62,74,58,14],[132,74,40,14],[184,74,60,14],[256,74,72,14],[10,97,80,14],[102,97,50,14],[164,97,60,14],[236,97,92,14]].map(([x,y,w,h],i)=>(
+                    <rect key={i} x={x} y={y} width={w} height={h} rx="2" fill={theme==="dark"?"#241C0C":"#C8BC98"} opacity="0.7"/>
+                  ))}
+                  <circle cx="167" cy="65" r="14" fill={c.accent} opacity="0.25"/>
+                  <circle cx="167" cy="65" r="8" fill={c.accent}/>
+                  <circle cx="167" cy="65" r="4" fill="#FFFFFF"/>
+                </svg>
+                <div style={{ position:"absolute", bottom:8, left:10, background:"rgba(0,0,0,0.65)", borderRadius:8, padding:"4px 10px" }}>
+                  <span style={{ fontSize:12, fontWeight:600, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{deal.place || deal.district}</span>
+                </div>
+                <button onClick={handleOpenInMaps} style={{ position:"absolute", top:8, right:10, background:c.accent, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer" }}>
+                  <span style={{ fontSize:11, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>Open in Maps</span>
+                </button>
+              </div>
+
+              {/* Place info row */}
+              <div style={{ padding:"12px 14px", display:"flex", alignItems:"center", gap:11, borderTop:`1px solid ${c.border}` }}>
+                <div style={{ width:40, height:40, borderRadius:10, background:`linear-gradient(135deg, ${catColor}, ${c.accent})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                  {(CATS.find(x => x.key === deal.cat) || {}).emoji || "📍"}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:c.text, letterSpacing:"-0.015em", marginBottom:2, fontFamily:"'DM Sans',sans-serif" }}>
+                    {deal.place || "Unknown place"}
+                  </div>
+                  <div style={{ fontSize:11, color:c.sub, display:"flex", alignItems:"center", gap:6, fontFamily:"'DM Sans',sans-serif" }}>
+                    <span style={{ padding:"1.5px 5px", background:c.muted, borderRadius:4, fontSize:9.5, fontWeight:700, color:c.text2 || c.text, letterSpacing:"0.04em" }}>{(deal.district || "DOHA").toUpperCase()}</span>
+                    {deal.address && <><span>·</span><span>{deal.address}</span></>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action row — Directions + Call (Call only if phone exists) */}
+              <div style={{ padding:"0 14px 14px", display:"flex", gap:6 }}>
+                <button onClick={handleDirections} style={{ flex:1, padding:"10px 0", background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, border:"none", borderRadius:10, fontSize:12, fontWeight:800, color:c.btnText, cursor:"pointer", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, letterSpacing:"-0.005em", fontFamily:"'DM Sans',sans-serif", boxShadow:`0 4px 14px ${c.gold}33` }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  Directions
+                </button>
+                {hasPhone && (
+                  <button onClick={handleCall} style={{ flex:1, padding:"10px 0", background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, fontSize:12, fontWeight:700, color:c.text, cursor:"pointer", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, letterSpacing:"-0.005em", fontFamily:"'DM Sans',sans-serif" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    Call
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            // Delivery-only — no map, just source card
+            <>
+              <div style={{ padding:14, background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, display:"flex", alignItems:"center", gap:11 }}>
+                <div style={{ width:40, height:40, borderRadius:10, background:`linear-gradient(135deg, ${PM.color}, ${PM.color}AA)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0, color:"white", fontWeight:800 }}>
+                  {PM.label[0]}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:c.text, letterSpacing:"-0.015em", marginBottom:2, fontFamily:"'DM Sans',sans-serif" }}>
+                    Order via {PM.label}
+                  </div>
+                  <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+                    Delivery only{deal.place ? ` · ${deal.place}` : ""}
+                  </div>
+                </div>
+                <button onClick={handleOpenInMaps} style={{ padding:"7px 12px", background:c.surface3 || c.muted, border:`1px solid ${c.border}`, borderRadius:9, fontSize:11, fontWeight:700, color:c.text, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:5, flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>
+                  Look up
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M7 17L17 7M7 7h10v10"/></svg>
+                </button>
+              </div>
+              <div style={{ padding:"9px 13px", background:c.muted, borderRadius:10, marginTop:10, display:"flex", alignItems:"center", gap:8, fontSize:11.5, color:c.sub, letterSpacing:"-0.005em", fontFamily:"'DM Sans',sans-serif" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink:0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                Delivery-only post — no map directions available
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* YOUR REACTION */}
+        <div style={{ padding:"16px 18px 0", ...a(0.14) }}>
+          <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:"0.22em", textTransform:"uppercase", color:c.sub, marginBottom:9, fontFamily:"'DM Sans',sans-serif" }}>
+            Your reaction
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:8 }}>
+            <button
+              onClick={()=>handleVoteHere("up")}
+              style={{ padding:"11px 12px", background: vote === "up" ? `${c.positive}22` : c.surface, border:`1px solid ${vote === "up" ? c.positive+"88" : c.border}`, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:12.5, fontWeight:700, color: vote === "up" ? c.positive : c.text, letterSpacing:"-0.005em", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
+              Helpful
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:700, fontSize:11, color: vote === "up" ? c.positive : c.sub, opacity: 0.9 }}>{upCount}</span>
+            </button>
+            <button
+              onClick={()=>handleVoteHere("down")}
+              style={{ padding:"11px 12px", background: vote === "down" ? `${c.negative}22` : c.surface, border:`1px solid ${vote === "down" ? c.negative+"88" : c.border}`, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:12.5, fontWeight:700, color: vote === "down" ? c.negative : c.text, letterSpacing:"-0.005em", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ transform:"scaleY(-1)" }}><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
+              Not for me
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:700, fontSize:11, color: vote === "down" ? c.negative : c.sub, opacity: 0.9 }}>{downCount}</span>
+            </button>
+          </div>
+          {totalVotes > 0 && (
+            <div style={{ display:"flex", alignItems:"center", gap:9, fontSize:10.5, color:c.sub, padding:"0 2px", marginTop:4, fontFamily:"'DM Sans',sans-serif" }}>
+              <span>{totalVotes} votes</span>
+              <div style={{ flex:1, height:3.5, background:c.surface3 || c.muted, borderRadius:2, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:`${helpfulPct}%`, background:c.positive, borderRadius:2, transition:"width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)" }}/>
+              </div>
+              <span style={{ color:c.text2 || c.text, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", fontSize:10.5 }}>{helpfulPct}%</span>
+            </div>
+          )}
+        </div>
+
+        {/* COMMENTS — existing component */}
+        <div style={{ padding:"0 18px", ...a(0.16) }}>
+          <CommentsSection dealId={deal.id} theme={theme} lang={lang}/>
+        </div>
+
+        {/* POST-HERE CTA */}
+        <div style={{ padding:"14px 18px 24px", ...a(0.18) }}>
+          <button onClick={()=>onPostHere(deal)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12, background:c.surface, border:`1.5px solid ${c.border}`, borderRadius:16, padding:"14px 14px", cursor:"pointer", textAlign:"left", transition:"border-color 0.2s" }}
+            onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"55"}
+            onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
+          >
+            <div style={{ width:36, height:36, borderRadius:10, background:`${c.accent}15`, border:`1px solid ${c.accent}35`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:c.text, letterSpacing:"-0.01em", fontFamily:"'DM Sans',sans-serif" }}>Found something different here?</div>
+              <div style={{ fontSize:11, color:c.sub, marginTop:2, fontFamily:"'DM Sans',sans-serif" }}>Post your own take about {(deal.place || "this place").split(" ").slice(0,3).join(" ")}</div>
+            </div>
+          </button>
+        </div>
+
+        {/* Delete confirm dialog (for more menu) */}
+        {showDeleteConfirm && (
+          <div onClick={()=>setShowDeleteConfirm(false)} style={{ position:"fixed", inset:0, zIndex:80, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+            <div onClick={(e)=>e.stopPropagation()} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:18, padding:"22px 22px 18px", maxWidth:320, width:"100%", boxShadow:"0 12px 40px rgba(0,0,0,0.5)" }}>
+              <div style={{ fontSize:17, fontWeight:700, color:c.text, letterSpacing:"-0.02em", marginBottom:8, fontFamily:"'DM Sans',sans-serif" }}>Delete this post?</div>
+              <div style={{ fontSize:13, color:c.sub, lineHeight:1.5, marginBottom:18, fontFamily:"'DM Sans',sans-serif" }}>This can't be undone. The post and its comments will be removed.</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>setShowDeleteConfirm(false)} style={{ flex:1, padding:"11px 0", background:"transparent", border:`1px solid ${c.border}`, borderRadius:11, fontSize:13, fontWeight:600, color:c.text, cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>Cancel</button>
+                <button onClick={()=>{ setShowDeleteConfirm(false); onDeleteOwnPost && onDeleteOwnPost(deal.id); onBack && onBack(); }} style={{ flex:1, padding:"11px 0", background:"#EF4444", border:"none", borderRadius:11, fontSize:13, fontWeight:700, color:"#FFFFFF", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -6967,7 +7393,21 @@ export default function BKMApp() {
   const renderTab = () => {
     if (pushedScreen?.type==="location")      return <LocationPage district={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>push("user",u)}/>;
     if (pushedScreen?.type==="user")          return <Profile user={pushedScreen.data} theme={theme} lang={lang} onBack={pop} showBack onViewFollowers={()=>push("followers", pushedScreen.data.uid || pushedScreen.data.id)} onOpenPost={openPostNormalized}/>;
-    if (pushedScreen?.type==="post")          return <PostDetail deal={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}/>;
+    if (pushedScreen?.type==="post")          return <PostDetail
+      deal={pushedScreen.data}
+      theme={theme}
+      lang={lang}
+      onBack={pop}
+      onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}
+      vote={userVotes[pushedScreen.data.id]}
+      onVote={handleVote}
+      bookmarked={userBookmarks.has(pushedScreen.data.id)}
+      onBookmark={(id) => fbToggleBookmark(fbAuth.currentUser?.uid, id).catch(()=>{})}
+      isAdmin={isAdmin}
+      onReportPost={handleReportPost}
+      onBlockUser={handleBlockUser}
+      onDeleteOwnPost={handleDeleteOwnPost}
+    />;
     if (pushedScreen?.type==="notifications") return <NotificationsScreen
       notifications={notifications}
       theme={theme}
