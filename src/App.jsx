@@ -897,9 +897,73 @@ const isValidUsername = (u) => {
   return null; // valid
 };
 const getAuto = () => new Date().getHours() >= 7 && new Date().getHours() < 19 ? "light" : "dark";
+// ─── v1.0 DESIGN SYSTEM ─────────────────────────────────────────────────────
+// Warm dark chocolate (dark) / warm parchment (light). Same accents both modes.
+// New tokens: gold, goldSoft, positive, negative, hot, surface2, surface3, text2.
+// Category color encoding lives below in CATEGORY_COLORS.
+// ────────────────────────────────────────────────────────────────────────────
 const TH = {
-  dark:  { bg:"#07060A", surface:"#0F0C08", border:"#1E1810", text:"#F0E0C0", sub:"#5A4530", muted:"#141008", accent:"#8B0038", btnBg:"#F0E0C0", btnText:"#07060A", inputBg:"#0F0C08", inputBorder:"#1E1810", pill:"#161008", pillBorder:"#221810", card:"#0F0C08" },
-  light: { bg:"#F5F0E8", surface:"#FFFFFF",  border:"#EAE0D0", text:"#1C1208", sub:"#AE9878", muted:"#EAE0D0", accent:"#8B0038", btnBg:"#1C1208", btnText:"#F5F0E8", inputBg:"#FFFFFF",  inputBorder:"#EAE0D0", pill:"#EEE8DC", pillBorder:"#E0D4C0", card:"#FFFFFF" },
+  dark: {
+    bg:           "#181513",
+    surface:      "#22201D",
+    surface2:     "#2A2724",
+    surface3:     "#34302C",
+    border:       "#2A2724",
+    text:         "#F5EDDF",
+    text2:        "#C5B7A1",
+    sub:          "#847868",
+    muted:        "#1E1B18",
+    accent:       "#B53056",
+    accentDeep:   "#8B0038",
+    gold:         "#E0A33E",
+    goldSoft:     "#FFCF8A",
+    positive:     "#88B07C",
+    negative:     "#C46A5F",
+    hot:          "#FF6B47",
+    btnBg:        "#F5EDDF",
+    btnText:      "#181513",
+    inputBg:      "#22201D",
+    inputBorder:  "#2A2724",
+    pill:         "#22201D",
+    pillBorder:   "#34302C",
+    card:         "#22201D",
+  },
+  light: {
+    bg:           "#F5F0E6",
+    surface:      "#FFFFFF",
+    surface2:     "#ECE5D6",
+    surface3:     "#DDD3BD",
+    border:       "#E0D4C0",
+    text:         "#181513",
+    text2:        "#4A4137",
+    sub:          "#6F665A",
+    muted:        "#ECE5D6",
+    accent:       "#B53056",
+    accentDeep:   "#8B0038",
+    gold:         "#C9892A",
+    goldSoft:     "#E0A33E",
+    positive:     "#6B9061",
+    negative:     "#B05A4F",
+    hot:          "#E54420",
+    btnBg:        "#181513",
+    btnText:      "#F5F0E6",
+    inputBg:      "#FFFFFF",
+    inputBorder:  "#E0D4C0",
+    pill:         "#ECE5D6",
+    pillBorder:   "#DDD3BD",
+    card:         "#FFFFFF",
+  },
+};
+
+// Category color tokens — visual encoding on cards, pills, headers.
+// Same in both modes; cards use these as accent stripes (not as backgrounds).
+const CATEGORY_COLORS = {
+  food:        "#E8A03C",
+  groceries:   "#88B07C",
+  stores:      "#B16A8E",
+  electronics: "#6B95C9",
+  flowers:     "#D497A6",
+  pharmacies:  "#6FA8A8",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -970,12 +1034,12 @@ function getRankBorderStyle(tier) {
 }
 
 function getRingStyle(tier) {
-  if (tier === 0) return { background:"#2A2018" };
-  if (tier === 1) return { background:"#8B003855" };
-  if (tier === 2) return { background:"#8B0038" };
-  if (tier === 3) return { background:"linear-gradient(135deg,#8B0038,#C9892A)" };
-  if (tier === 4) return { background:"linear-gradient(135deg,#8B0038,#C9892A,#FFD700,#8B0038)" };
-  return { background:"#2A2018" };
+  if (tier === 0) return { background:"#34302C" };
+  if (tier === 1) return { background:"#B5305655" };
+  if (tier === 2) return { background:"linear-gradient(135deg,#9B5A1A,#C9892A)" };
+  if (tier === 3) return { background:"linear-gradient(135deg,#B53056,#E0A33E)" };
+  if (tier === 4) return { background:"conic-gradient(from 0deg,#E0A33E,#FFCF8A 25%,#B53056 50%,#E0A33E 75%,#FFCF8A)" };
+  return { background:"#34302C" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7034,9 +7098,16 @@ export default function BKMApp() {
                 { key:"profile", label:"Profile", Ico:Ico.Person, badge: unreadCount },
               ].map(item => {
                 const active = !pushedScreen && tab===item.key;
+                const isPost = item.key === "post";
                 return (
                   <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 12px", position:"relative" }}>
-                    <item.Ico s={20} c={active?c.accent:c.sub}/>
+                    {isPost ? (
+                      <div style={{ width:32, height:32, borderRadius:10, background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:active?`0 4px 14px ${c.gold}55`:`0 2px 8px ${c.gold}33`, transform:active?"scale(1.04)":"scale(1)", transition:"transform 0.18s, box-shadow 0.18s" }}>
+                        <item.Ico s={18} c={c.btnText}/>
+                      </div>
+                    ) : (
+                      <item.Ico s={20} c={active?c.accent:c.sub}/>
+                    )}
                     {item.badge > 0 && (
                       <div style={{ position:"absolute", top:2, right:6, minWidth:16, height:16, borderRadius:8, background:c.accent, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`2px solid ${c.bg}`, animation:"bellPulse 1.4s ease-in-out infinite" }}>
                         <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{item.badge > 99 ? "99+" : item.badge}</span>
