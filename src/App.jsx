@@ -3412,171 +3412,181 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
   };
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
-
-      {/* ── Submitted toast — covers form entirely ── */}
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:c.bg }}>
+      {/* Submitted toast */}
       {step==="submitted" && (
-        <div style={{ position:"absolute", inset:0, zIndex:100, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"0 28px", background:TH[theme].bg }}>
+        <div style={{ position:"absolute", inset:0, zIndex:100, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"0 28px", background:c.bg }}>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, animation:"scaleIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both" }}>
-            <div style={{ width:64, height:64, borderRadius:20, background:"#16A34A15", border:"2px solid #16A34A44", display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <Ico.Check s={30} c="#16A34A"/>
+            <div style={{ width:64, height:64, borderRadius:20, background:`${c.positive}22`, border:`2px solid ${c.positive}66`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <Ico.Check s={30} c={c.positive}/>
             </div>
             <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:18, fontWeight:700, color:TH[theme].text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Deal Submitted ✓</div>
-              <div style={{ fontSize:13, color:TH[theme].sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>In the review queue — going back to feed</div>
+              <div style={{ fontSize:18, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>Find Submitted ✓</div>
+              <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>In the review queue — back to feed</div>
             </div>
           </div>
         </div>
       )}
-      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px 32px" }}>
 
-        {/* Header with progress indicator */}
-        <div style={{ ...a(0.04), marginBottom:22 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <span style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>Post a Deal</span>
-            {(() => {
-              const filled = [!!subject, !!cat, !!platform, !!place, !!district, items.some(it=>it.n&&it.p)].filter(Boolean).length;
-              const pct = Math.round((filled / 6) * 100);
-              return (
-                <div style={{ display:"flex", alignItems:"center", gap:7 }}>
-                  <span style={{ fontSize:11, color:filled===6?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>{filled}/6</span>
-                  <div style={{ width:50, height:5, borderRadius:3, background:c.muted, overflow:"hidden" }}>
-                    <div style={{ width:`${pct}%`, height:"100%", background:`linear-gradient(90deg, ${c.accent}, #FFD17A)`, transition:"width 0.4s cubic-bezier(0.34,1.4,0.64,1)" }}/>
+      {/* Header */}
+      <div style={{ padding:"10px 14px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${c.border}`, flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <button onClick={onBack} style={{ width:30, height:30, background:c.surface, border:`1px solid ${c.border}`, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text2||c.text }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+          <span style={{ fontWeight:600, fontSize:15, letterSpacing:"-0.02em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Share a find</span>
+        </div>
+        <div style={{ display:"flex", gap:4 }}>
+          {[!!subject, !!cat, !!platform, items.some(it=>it.n&&it.p)].map((done,i) => (
+            <span key={i} style={{ width:5, height:5, borderRadius:"50%", background: done ? c.gold : c.surface3||c.muted }}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto" }}>
+        {/* Live preview */}
+        <div style={{ padding:"12px 16px 4px", ...a(0.04) }}>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:8, display:"flex", alignItems:"center", gap:8 }}>
+            <div style={{ width:14, height:1.5, background:c.gold }}/>
+            Preview · how it appears revealed
+          </div>
+          <div style={{ padding:11, background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, position:"relative", display:"grid", gridTemplateColumns:"32px 1fr", gap:9, opacity: subject ? 1 : 0.5, transition:"opacity 0.2s" }}>
+            <div style={{ position:"absolute", left:-1, top:13, width:3, height:22, borderRadius:2, background: CATEGORY_COLORS[cat] || c.gold }}/>
+            <div style={{ width:32, height:32 }}>
+              <Avatar user={getMe()} size={28}/>
+            </div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:c.text2||c.sub, marginBottom:3 }}>
+                <span style={{ color:c.text, fontWeight:600 }}>@{getMe().username || "you"}</span> · just now
+              </div>
+              <div style={{ fontWeight:600, fontSize:12, lineHeight:1.28, letterSpacing:"-0.015em", color:c.text, marginBottom:5, fontFamily:"'DM Sans',sans-serif", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>
+                {subject || "Your find title appears here"}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:6, alignItems:"center", padding:"6px 8px", background:`linear-gradient(135deg, ${c.gold}1A, ${c.accent}0A)`, border:`1px solid ${c.gold}38`, borderRadius:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <div style={{ width:20, height:20, background:c.gold, color:c.bg, borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:7.5, letterSpacing:"0.16em", textTransform:"uppercase", color:c.gold, fontWeight:700 }}>Revealed</span>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:700, letterSpacing:"-0.02em", color:c.text }}>
+                      {(items[0]?.p) ? items[0].p : "—"}<span style={{ fontSize:8, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                    </span>
                   </div>
                 </div>
-              );
-            })()}
-          </div>
-          <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
-            Share a deal you found. BKM reviews every post before it goes live.
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Subject */}
-        <div style={{ ...a(0.08), marginBottom:10 }}>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>Your Hot Take</div>
-          <textarea value={subject} onChange={e=>{ const v=e.target.value.replace(/[0-9]/g,""); setSubject(v); }} placeholder="Why is this deal worth sharing? Be specific. No prices — that's what the reveal is for." style={{ ...is, minHeight:90, resize:"none", lineHeight:1.5 }} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
+        <div style={{ padding:"18px 16px 14px" }}>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:7 }}>
+            What is it <span style={{ color:c.gold }}>·</span>
+          </div>
+          <textarea
+            value={subject}
+            onChange={e=>setSubject(e.target.value.replace(/[0-9]/g,""))}
+            placeholder="A few words people can scan. No prices — that's what the reveal is for."
+            style={{ width:"100%", padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, letterSpacing:"-0.005em", minHeight:64, resize:"none", lineHeight:1.5, outline:"none" }}
+            onFocus={e=>e.target.style.borderColor=c.gold}
+            onBlur={e=>e.target.style.borderColor=c.border}
+          />
         </div>
 
-        {/* Category — horizontal scrolling pills, no bulk */}
-        <div style={{ ...a(0.1), marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
-            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase" }}>Category</div>
-            {cat && <div style={{ fontSize:10, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>✓ Selected</div>}
+        {/* Category */}
+        <div style={{ padding:"0 16px 14px" }}>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:7 }}>
+            Category <span style={{ color:c.gold }}>·</span>
           </div>
-          <div style={{ display:"flex", gap:7, overflowX:"auto", margin:"0 -20px", padding:"2px 20px 8px", scrollbarWidth:"none" }}>
-            {CATS.map(item=>{
-              const active = cat===item.key;
+          <div style={{ display:"flex", gap:5, overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch", margin:"0 -16px", padding:"0 16px 4px" }}>
+            {CATS.map(catOpt => {
+              const active = cat === catOpt.key;
               return (
-                <button key={item.key} onClick={()=>{ setCat(item.key); sfx.tap(); }} style={{
-                  flexShrink:0,
-                  display:"inline-flex", alignItems:"center", gap:7,
-                  padding:"10px 16px",
-                  background: active ? c.accent : c.surface,
-                  border: `1.5px solid ${active ? c.accent : c.border}`,
-                  borderRadius:24,
-                  cursor:"pointer",
-                  transition:"all 0.18s cubic-bezier(0.34,1.4,0.64,1)",
-                  transform: active ? "scale(1.02)" : "scale(1)",
-                  boxShadow: active ? `0 4px 14px ${c.accent}44` : "none",
-                  whiteSpace:"nowrap",
-                }}>
-                  <span style={{ fontSize:14, lineHeight:1 }}>{item.emoji}</span>
-                  <span style={{ fontSize:13, fontWeight:active?700:600, color:active?"#FFFFFF":c.text, fontFamily:"'DM Sans',sans-serif" }}>{item.label}</span>
+                <button key={catOpt.key} onClick={()=>setCat(catOpt.key)} style={{ flexShrink:0, display:"inline-flex", alignItems:"center", gap:4, padding:"7px 12px", background:active?c.text:c.surface, border:`1px solid ${active?c.text:c.border}`, borderRadius:100, fontSize:11.5, fontWeight:active?700:500, color:active?c.bg:c.text2||c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em", cursor:"pointer", transition:"all 0.18s" }}>
+                  <span style={{ fontSize:12 }}>{catOpt.emoji}</span> {catOpt.label}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Platform source — colorful chip selector */}
-        <div style={{ ...a(0.12), marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
-            <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase" }}>Where did you find this?</div>
-            {platform && <div style={{ fontSize:10, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>✓ Selected</div>}
+        {/* Where + district */}
+        <div style={{ padding:"0 16px 14px" }}>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:7 }}>
+            Where <span style={{ color:c.gold }}>·</span>
           </div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
-            {PLATFORM_OPTIONS.map(p=>{
-              const active = platform===p.key;
+          <input
+            value={place}
+            onChange={e=>setPlace(e.target.value)}
+            placeholder="Place or shop name"
+            style={{ width:"100%", padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, letterSpacing:"-0.005em", marginBottom:7, outline:"none" }}
+            onFocus={e=>e.target.style.borderColor=c.gold}
+            onBlur={e=>e.target.style.borderColor=c.border}
+          />
+          <div style={{ display:"flex", gap:5, overflowX:"auto", scrollbarWidth:"none", margin:"0 -16px", padding:"0 16px" }}>
+            {AREAS.map(area => {
+              const active = district === area;
               return (
-                <button key={p.key} onClick={()=>{ setPlatform(p.key); sfx.tap(); }} style={{
-                  display:"flex", alignItems:"center", gap:6,
-                  padding:"9px 14px",
-                  background: active ? p.color : c.surface,
-                  border: `1.5px solid ${active ? p.color : c.border}`,
-                  borderRadius:20,
-                  cursor:"pointer",
-                  transition:"all 0.18s cubic-bezier(0.34,1.4,0.64,1)",
-                  transform: active ? "scale(1.04)" : "scale(1)",
-                  boxShadow: active ? `0 3px 12px ${p.color}55` : "none",
-                }}>
-                  <div style={{ width:7, height:7, borderRadius:"50%", background: active ? "#FFFFFF" : p.color }}/>
-                  <span style={{ fontSize:12, fontWeight:active?700:600, color:active?"#FFFFFF":c.text, fontFamily:"'DM Sans',sans-serif" }}>{p.label}</span>
+                <button key={area} onClick={()=>setDistrict(area)} style={{ flexShrink:0, padding:"6px 12px", background:active?c.text:c.surface, border:`1px solid ${active?c.text:c.border}`, borderRadius:100, fontSize:11, fontWeight:active?700:500, color:active?c.bg:c.text2||c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
+                  {area}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Place + district */}
-        <div style={{ ...a(0.12), marginBottom:10 }}>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>Location</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            <input style={is} placeholder="Place name (e.g. Al Wakra Shawarma Palace)" value={place} onChange={e=>setPlace(e.target.value)} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
-            <select value={district} onChange={e=>setDistrict(e.target.value)} style={{ ...is, cursor:"pointer", color:district?c.text:c.sub, appearance:"none" }}>
-              <option value="" disabled>Select district</option>
-              {DISTRICTS.map(d=><option key={d} value={d}>{d}</option>)}
-            </select>
+        {/* Platform (delivery apps) */}
+        <div style={{ padding:"0 16px 14px" }}>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:7 }}>
+            Source <span style={{ color:c.gold }}>·</span>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:6 }}>
+            {PLATFORM_OPTIONS.map(p => {
+              const active = platform === p.key;
+              return (
+                <button key={p.key} onClick={()=>setPlatform(p.key)} style={{ padding:"9px 8px", background:active?`${p.color}22`:c.surface, border:`1.5px solid ${active?p.color:c.border}`, borderRadius:10, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:active?700:600, color:active?p.color:c.text2||c.text, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:5, transition:"all 0.18s" }}>
+                  <span style={{ width:8, height:8, borderRadius:"50%", background:p.color, display:"inline-block" }}/>
+                  {p.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Items */}
-        <div style={{ ...a(0.14), marginBottom:10 }}>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>Items & Prices</div>
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {items.map((item,i)=>(
-              <div key={i} style={{ display:"flex", gap:8, alignItems:"center" }}>
-                <input placeholder="Item name" value={item.n} onChange={e=>updateItem(i,"n",e.target.value)} style={{ ...is, flex:2 }} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
-                <input placeholder="QAR" type="number" value={item.p} onChange={e=>updateItem(i,"p",e.target.value)} style={{ ...is, flex:1 }} onFocus={e=>e.target.style.borderColor=c.accent} onBlur={e=>e.target.style.borderColor=c.inputBorder}/>
-                {items.length>1&&<button onClick={()=>removeItem(i)} style={{ background:"none", border:`1px solid ${c.border}`, borderRadius:10, width:38, height:50, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ico.Trash s={14} c={c.sub}/></button>}
+        <div style={{ padding:"0 16px 14px" }}>
+          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
+              Items + price <span style={{ color:c.gold }}>·</span>
+            </span>
+            <button onClick={addItem} style={{ background:"none", border:"none", cursor:"pointer", color:c.gold, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, letterSpacing:"-0.01em" }}>+ Add item</button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {items.map((item, idx) => (
+              <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 90px auto", gap:5 }}>
+                <input value={item.n} onChange={e=>updateItem(idx,"n",e.target.value)} placeholder="Item name" style={{ padding:"10px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.border}/>
+                <div style={{ position:"relative" }}>
+                  <input value={item.p} onChange={e=>updateItem(idx,"p",e.target.value.replace(/[^0-9.]/g,""))} placeholder="0" inputMode="decimal" style={{ width:"100%", padding:"10px 36px 10px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.border}/>
+                  <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+                </div>
+                {items.length > 1 && (
+                  <button onClick={()=>removeItem(idx)} style={{ width:36, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                )}
               </div>
             ))}
-            <button onClick={addItem} style={{ background:"transparent", border:`1px dashed ${c.border}`, borderRadius:12, padding:"11px 0", fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>+ Add another item</button>
           </div>
         </div>
 
         {/* Submit */}
-        <div style={a(0.22)}>
-          <button onClick={handleSubmit} disabled={!ready} style={{
-            width:"100%",
-            padding:"15px 0",
-            background: ready ? `linear-gradient(135deg, ${c.accent}, #B82253)` : c.muted,
-            color: ready ? "#FFFFFF" : c.sub,
-            border:"none",
-            borderRadius:14,
-            fontFamily:"'DM Sans',sans-serif",
-            fontSize:15, fontWeight:800,
-            letterSpacing:"0.02em",
-            cursor: ready ? "pointer" : "default",
-            boxShadow: ready ? `0 6px 20px ${c.accent}55` : "none",
-            transition:"all 0.25s cubic-bezier(0.34,1.4,0.64,1)",
-            transform: ready ? "translateY(0)" : "translateY(0)",
-            position:"relative",
-            overflow:"hidden",
-          }}>
-            {ready ? (
-              <span style={{ display:"inline-flex", alignItems:"center", gap:8, justifyContent:"center" }}>
-                Submit for Review
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              </span>
-            ) : (
-              "Fill in the form to submit"
-            )}
+        <div style={{ padding:"12px 16px 24px", position:"sticky", bottom:0, background:`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 30%)` }}>
+          <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"15px 18px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:14, fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 8px 24px ${c.gold}33` : "none", display:"flex", alignItems:"center", justifyContent:"space-between", transition:"all 0.18s" }}>
+            <span>Share find</span>
+            {ready && <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", background:"rgba(0,0,0,0.25)", borderRadius:5, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:800 }}>+3◆</span>}
           </button>
-          {getMe().founder && ready && <div style={{ textAlign:"center", fontSize:11, color:"#1D6FEB", fontFamily:"'DM Sans',sans-serif", marginTop:8, fontWeight:600 }}>Founder post — will appear in review queue</div>}
-          {ready && <div style={{ textAlign:"center", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:8 }}>+3 reveal energy on approval</div>}
         </div>
-        <div style={{ height:8 }}/>
       </div>
     </div>
   );
@@ -3659,167 +3669,133 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
   };
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:c.bg }}>
       <div style={{ flex:1, overflowY:"auto", paddingBottom:24 }}>
 
-        {/* Header */}
-        {showBack ? (
-          <div style={{ padding:"12px 20px 0", ...a(0.0) }}>
-            <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 0" }}><Ico.Back s={18} c={c.sub}/></button>
-          </div>
-        ) : isOwn && (
-          <div style={{ padding:"12px 20px 0", display:"flex", alignItems:"center", justifyContent:"space-between", ...a(0.0) }}>
-            <span style={{ fontSize:18, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>Profile</span>
-            <div style={{ display:"flex", gap:8 }}>
-              {/* Bell */}
-              <button onClick={onNotifications} style={{ width:38, height:38, borderRadius:11, background:c.surface, border:`1px solid ${c.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        {/* Header — back/notifications/signout */}
+        <div style={{ padding:"10px 16px 6px", display:"flex", alignItems:"center", justifyContent:"space-between", ...a(0.0) }}>
+          {showBack ? (
+            <button onClick={onBack} style={{ width:32, height:32, background:c.surface, border:`1px solid ${c.border}`, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text2||c.text }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </button>
+          ) : <div style={{ width:32 }}/>}
+          <div style={{ display:"flex", gap:8 }}>
+            {isOwn && (
+              <button onClick={onNotifications} style={{ width:32, height:32, background:c.surface, border:`1px solid ${c.border}`, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text2||c.text, position:"relative" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
                 {unreadCount > 0 && (
-                  <div style={{ position:"absolute", top:6, right:6, width:8, height:8, borderRadius:"50%", background:c.accent }}/>
+                  <div style={{ position:"absolute", top:5, right:5, width:7, height:7, borderRadius:"50%", background:c.accent, border:`1.5px solid ${c.surface}` }}/>
                 )}
               </button>
-              {/* Settings */}
-              <button onClick={onSettings} style={{ width:38, height:38, borderRadius:11, background:c.surface, border:`1px solid ${c.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            )}
+            {isOwn && (
+              <button onClick={()=>{ if (confirm("Sign out of BKM?")) onSignOut && onSignOut(); }} title="Sign out" style={{ width:32, height:32, background:c.surface, border:`1px solid ${c.border}`, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:"#EF4444" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               </button>
-              {/* Sign out — only on own profile */}
-              {isOwn && (
-                <button onClick={()=>{ if (confirm("Sign out of BKM?")) onSignOut && onSignOut(); }} title="Sign out" style={{ width:38, height:38, borderRadius:11, background:c.surface, border:`1px solid #EF444444`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                </button>
-              )}
-            </div>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* Profile card */}
-        <div style={{ padding:"20px 20px 0", ...a(0.06) }}>
-          <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:20, padding:"24px 20px" }}>
-            <div style={{ display:"flex", alignItems:"flex-start", gap:14 }}>
-              <Avatar user={user} size={56}/>
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                  <span style={{ fontSize:18, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{user.username}</span>
-                  <TierBadge user={user} size="md"/>
-                  {(()=>{ const b=getBetaBadge(user.id); return b ? <span style={{ fontSize:10, fontWeight:800, color:b.color, background:b.bg, border:`1px solid ${b.border}`, borderRadius:6, padding:"2px 8px", fontFamily:"'DM Sans',sans-serif" }}>β {b.label}</span> : null; })()}
-                </div>
-                {user.name && <div style={{ fontSize:13, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{user.name}</div>}
-                {user.caption && <div style={{ fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif", marginTop:6, lineHeight:1.4 }}>{user.caption}</div>}
-              </div>
-            </div>
-
-            {/* Follow / Unfollow button for other profiles */}
-            {!isOwn && (
-              <div style={{ display:"flex", gap:10, marginTop:16, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
-                <button onClick={handleFollow} style={{ flex:1, padding:"11px 0", background:following?c.muted:c.accent, border:`1px solid ${following?c.border:"transparent"}`, borderRadius:12, fontSize:13, fontWeight:700, color:following?c.text:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s", animation:followAnim?"upBurst 0.45s ease both":"none", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                  {following && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>}
-                  {following?"Unfollow":"Follow"}
-                </button>
-                <button style={{ width:44, height:44, background:"transparent", border:`1px solid ${c.border}`, borderRadius:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                </button>
+        {/* Hero — big avatar with tier ring + founder pill */}
+        <div style={{ padding:"18px 18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:12, textAlign:"center", ...a(0.06) }}>
+          <div style={{ position:"relative", width:96, height:96 }}>
+            <Avatar user={user} size={88}/>
+            {user.founder && (
+              <div style={{ position:"absolute", bottom:-4, left:"50%", transform:"translateX(-50%)", padding:"3px 10px", background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:8.5, fontWeight:800, color:c.btnText, letterSpacing:"0.14em", textTransform:"uppercase", whiteSpace:"nowrap", boxShadow:`0 3px 12px ${c.gold}55` }}>
+                ★ Founder · Tier {user.rank}
               </div>
             )}
-
-            {/* Stats */}
-            <div style={{ display:"flex", marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
-              {(() => {
-                const realPostCount = myDeals.length;
-                const totalUps      = myDeals.reduce((sum, d) => sum + (d.ups || 0), 0);
-                const followingCount = isOwn ? (SESSION.following?.size || 0) : (user.following || 0);
-                return [
-                  { label:"Posts",      val: realPostCount,    onClick: null },
-                  { label:"Followers",  val: liveFollowersCount, onClick: onViewFollowers || null },
-                  { label:"Following",  val: followingCount,   onClick: isOwn ? onViewFollowing : null },
-                  { label:"Total Ups",  val: totalUps,         onClick: null },
-                ];
-              })().map((s,i,arr)=>(
-                <button key={i} onClick={s.onClick||undefined} disabled={!s.onClick} style={{ flex:1, textAlign:"center", borderRight:i<arr.length-1?`1px solid ${c.border}`:"none", background:"transparent", border:"none", padding:"4px 0", cursor:s.onClick?"pointer":"default", borderTop:"none", borderBottom:"none", borderLeft:"none" }}>
-                  <div style={{ fontSize:17, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{s.val}</div>
-                  <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{s.label}</div>
-                </button>
-              ))}
-            </div>
           </div>
-        </div>
-
-        {/* Streak card — only on own profile, only when active */}
-        {isOwn && SESSION.streak > 0 && (
-          <div style={{ padding:"12px 20px 0", ...a(0.10) }}>
-            <div style={{ position:"relative", overflow:"hidden", background:`linear-gradient(135deg,${c.surface} 0%,${c.accent}08 100%)`, border:`1px solid ${c.accent}30`, borderRadius:14, padding:"13px 16px", display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ position:"absolute", top:-12, right:-12, width:80, height:80, borderRadius:"50%", background:`${c.accent}10`, pointerEvents:"none" }}/>
-              <div style={{ position:"relative", width:42, height:42, borderRadius:12, background:"linear-gradient(135deg,#FF6B35,#F59E0B)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, boxShadow:"0 3px 14px rgba(255,107,53,0.35)" }}>
-                <svg width="18" height="22" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>
-              </div>
-              <div style={{ flex:1, position:"relative" }}>
-                <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
-                  <span style={{ fontSize:22, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.03em", lineHeight:1 }}>{SESSION.streak}</span>
-                  <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>day streak</span>
-                </div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3 }}>
-                  {SESSION.lastRevealDate === todayKey() ? "Active today · Keep it going tomorrow" : "Reveal a deal today to extend"}
-                  {SESSION.bestStreak > SESSION.streak ? ` · Best: ${SESSION.bestStreak}` : ""}
-                </div>
-              </div>
-            </div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <span style={{ fontWeight:700, fontSize:22, letterSpacing:"-0.025em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>@{user.username}</span>
+            {user.founder && (
+              <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:16, height:16, background:c.gold, color:c.bg, borderRadius:"50%", fontSize:10, fontWeight:800 }}>✓</span>
+            )}
           </div>
-        )}
-
-        {/* Beta tier card */}
-        {(()=>{ const b=getBetaBadge(user.id); return b ? (
-          <div style={{ padding:"12px 20px 0", ...a(0.12) }}>
-            <div style={{ background:b.bg, border:`1px solid ${b.border}`, borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:36, height:36, borderRadius:10, background:b.bg, border:`1.5px solid ${b.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <span style={{ fontSize:18 }}>β</span>
-              </div>
-              <div>
-                <div style={{ fontSize:13, fontWeight:800, color:b.color, fontFamily:"'DM Sans',sans-serif" }}>{b.label} BETA TESTER</div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{b.desc} — founding member of BKM</div>
-              </div>
-            </div>
-          </div>
-        ) : null; })()}
-
-        {/* Their deals */}
-        <div style={{ padding:"16px 20px 0", ...a(0.14) }}>
-          <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:12 }}>
-            {isOwn?"Your Posts":"Their Posts"}
-          </div>
-          {myDeals.length===0 && (
-            <div style={{ textAlign:"center", padding:"24px 0", color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>
-              {isOwn?"You haven't posted any deals yet.":"No posts yet."}
+          {!user.founder && (
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, letterSpacing:"0.16em", textTransform:"uppercase", fontWeight:600, color:c.gold }}>
+              {RANK_LABELS[user.rank] || "Scout"} · Tier {user.rank}
             </div>
           )}
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {myDeals.map(deal=>(
-              <button key={deal.id} onClick={()=>onOpenPost && onOpenPost(deal)} style={{ width:"100%", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"12px 14px", cursor:"pointer", textAlign:"left", transition:"all 0.15s" }}
-                onMouseOver={e=>e.currentTarget.style.borderColor=c.accent+"66"}
-                onMouseOut={e=>e.currentTarget.style.borderColor=c.border}
-              >
-                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  {deal.img && <img src={deal.img} alt="" style={{ width:44, height:44, borderRadius:10, objectFit:"cover", flexShrink:0 }} onError={e=>e.target.style.display="none"}/>}
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{(deal.subject||"").slice(0,55)}{deal.subject && deal.subject.length>55?"...":""}</div>
-                    <div style={{ fontSize:11, color:c.sub, marginTop:3, fontFamily:"'DM Sans',sans-serif" }}>{deal.district} · {deal.ups||0} up · {deal.claims||0} revealed</div>
-                  </div>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, opacity:0.6 }}><polyline points="9 18 15 12 9 6"/></svg>
-                </div>
-              </button>
-            ))}
-          </div>
+          {(user.caption || user.name) && (
+            <div style={{ fontSize:13, color:c.text2||c.sub, lineHeight:1.5, fontFamily:"'DM Sans',sans-serif", maxWidth:280 }}>
+              {user.caption || user.name}
+            </div>
+          )}
         </div>
 
-        {isOwn && (
-          <div style={{ padding:"16px 20px 0", ...a(0.2) }}>
-            <div style={{ background:"#F59E0B10", border:"1px solid #F59E0B33", borderRadius:12, padding:"12px 14px", display:"flex", gap:10, alignItems:"flex-start" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <div>
-                <div style={{ fontSize:12, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Sans',sans-serif", marginBottom:3 }}>BKM Beta</div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>Prices are user-submitted and unverified. Features may change. Data may be reset.</div>
+        {/* Stats grid */}
+        <div style={{ margin:"12px 14px 16px", padding:"14px 6px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:4, ...a(0.10) }}>
+          {(() => {
+            const realPostCount = myDeals.length;
+            const totalUps      = myDeals.reduce((sum, d) => sum + (d.ups || 0), 0);
+            const followingCount = isOwn ? (SESSION.following?.size || 0) : (user.following || 0);
+            return [
+              { label:"Hot finds", val:realPostCount,        onClick:null },
+              { label:"Followers", val:liveFollowersCount,   onClick: onViewFollowers || null },
+              { label:"Following", val:followingCount,       onClick: isOwn ? onViewFollowing : null },
+              { label:"Helpful",   val:totalUps,             onClick:null },
+            ];
+          })().map((s,i,arr) => (
+            <button key={i} onClick={s.onClick||undefined} disabled={!s.onClick} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2, position:"relative", background:"transparent", border:"none", cursor:s.onClick?"pointer":"default", padding:0 }}>
+              {i > 0 && <div style={{ position:"absolute", left:0, top:8, bottom:8, width:1, background:c.border }}/>}
+              <span style={{ fontWeight:700, fontSize:17, letterSpacing:"-0.025em", fontFamily:"'DM Sans',sans-serif", color:c.text }}>{s.val}</span>
+              <span style={{ fontSize:10, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{s.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div style={{ padding:"0 16px 14px", display:"flex", gap:7, ...a(0.12) }}>
+          {isOwn ? (
+            <>
+              <button onClick={onSettings} style={{ flex:1, padding:"10px 0", background:c.text, color:c.bg, border:`1px solid ${c.text}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:12.5, fontWeight:700, letterSpacing:"-0.01em", cursor:"pointer" }}>
+                Settings
+              </button>
+              <button style={{ flex:1, padding:"10px 0", background:c.surface, color:c.text, border:`1px solid ${c.border}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:12.5, fontWeight:600, letterSpacing:"-0.01em", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+                Share
+              </button>
+            </>
+          ) : (
+            <button onClick={handleFollow} style={{ flex:1, padding:"11px 0", background:following?c.surface:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, color:following?c.text:c.btnText, border:`1px solid ${following?c.border:"transparent"}`, borderRadius:12, fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer", transition:"all 0.2s", animation:followAnim?"upBurst 0.45s ease both":"none", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+              {following ? "Unfollow" : "Follow"}
+            </button>
+          )}
+        </div>
+
+        {/* Hot finds list */}
+        <div style={{ ...a(0.14) }}>
+          <div style={{ padding:"10px 20px 8px", display:"flex", alignItems:"baseline", justifyContent:"space-between" }}>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:700, color:c.sub }}>
+              {isOwn ? "Your hot finds" : `${user.username}'s hot finds`}
+            </span>
+            {myDeals.length > 0 && (
+              <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, letterSpacing:"0.08em", color:c.gold, fontWeight:600 }}>{myDeals.length} total</span>
+            )}
+          </div>
+          {myDeals.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"32px 24px 16px", display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+              <div style={{ width:48, height:48, borderRadius:14, background:c.surface, border:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <TagMark size={22} fill={c.sub} holeBg={c.surface}/>
+              </div>
+              <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{isOwn ? "No finds yet" : "Nothing yet"}</div>
+              <div style={{ fontSize:11.5, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, maxWidth:240 }}>
+                {isOwn ? "Tap the + button below to share your first find." : `${user.username} hasn't shared anything yet.`}
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <div style={{ padding:"0 16px" }}>
+              {myDeals.slice(0, 20).map(d => {
+                const hydrated = { ...d, user: d.user || user, ups: d.ups || 0, downs: d.downs || 0, claims: d.claims || 0, commentCount: d.commentCount || 0 };
+                return (
+                  <DealCard key={d.id} deal={hydrated} c={c} theme={theme} claimed={true} onClaim={()=>{}} vote={null} onVote={()=>{}} bookmarked={false} onBookmark={()=>{}} onUserTap={()=>{}} onLocationTap={()=>{}} onOpenPost={onOpenPost || (()=>{})} limitReached={false} isOwn={isOwn}/>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
@@ -4337,332 +4313,101 @@ function SearchTab({ theme, lang, onLocationTap, initialQuery="", liveDeals=[] }
   ];
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-
-      {/* Search bar — always visible */}
-      <div style={{ padding:"8px 16px 10px", flexShrink:0 }}>
-        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          {submitted && (
-            <button onClick={clear} style={{ background:"none", border:"none", cursor:"pointer", padding:"4px", flexShrink:0 }}>
-              <Ico.Back s={18} c={c.sub}/>
-            </button>
-          )}
-          <div style={{ flex:1, display:"flex", alignItems:"center", gap:9, background:c.surface, border:`1.5px solid ${focused||submitted?c.accent:c.border}`, borderRadius:14, padding:"12px 14px", transition:"border-color 0.2s" }}>
-            <Ico.Search s={16} c={focused||submitted?c.accent:c.sub}/>
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={e=>setQuery(e.target.value)}
-              onFocus={()=>setFocused(true)}
-              onBlur={()=>setTimeout(()=>setFocused(false),200)}
-              onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); doSearch(query); } }}
-              placeholder={hint||"Search for the best price..."}
-              style={{ flex:1, background:"none", border:"none", fontSize:16, color:c.text, fontFamily:"'DM Sans',sans-serif", outline:"none", minWidth:0 }}
-            />
-            {query && (
-              <button onMouseDown={e=>{e.preventDefault();clear();}} style={{ background:"none", border:"none", cursor:"pointer", color:c.sub, fontSize:13, flexShrink:0 }}>✕</button>
-            )}
-          </div>
-          {/* Search button — onMouseDown fires before input blur */}
-          <button
-            onMouseDown={e=>{ e.preventDefault(); doSearch(query); }}
-            style={{ width:44, height:44, background:query.trim()?c.accent:c.muted, border:"none", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:query.trim()?"pointer":"default", flexShrink:0, transition:"background 0.2s" }}
-          >
-            <Ico.Search s={16} c={query.trim()?"#FFFFFF":c.sub}/>
-          </button>
-        </div>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:c.bg }}>
+      {/* Top bar */}
+      <div style={{ padding:"14px 18px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <span style={{ fontWeight:700, fontSize:22, letterSpacing:"-0.025em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>
+          Find <span style={{ color:c.goldSoft||c.gold, fontStyle:"italic", fontWeight:500 }}>anything</span>
+        </span>
       </div>
 
-      {/* Scrollable body */}
-      <div style={{ flex:1, overflowY:"auto" }}>
+      {/* Search input */}
+      <div style={{ margin:"0 16px 18px", position:"relative" }}>
+        <svg style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)" }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.gold} strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input
+          value={query}
+          onChange={e=>setQuery(e.target.value)}
+          placeholder="Search for finds, items, places..."
+          style={{ width:"100%", padding:"13px 16px 13px 40px", background:c.surface, border:`1.5px solid ${query ? c.gold : c.border}`, borderRadius:14, fontSize:14.5, color:c.text, fontFamily:"'DM Sans',sans-serif", outline:"none", letterSpacing:"-0.005em" }}
+        />
+      </div>
 
-        {/* ── DEFAULT STATE ── */}
-        {!submitted && !focused && (
-          <div style={{ animation:"fu 0.3s ease both" }}>
-
-            {/* Nearby */}
-            <div style={{ marginBottom:20 }}>
-              <div style={{ padding:"0 16px 10px" }}>
-                <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>Near You</div>
-                <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1, display:"flex", alignItems:"center", gap:4 }}>
-                  <Ico.Pin s={10} c={c.sub}/> The Pearl, Doha
-                </div>
+      <div style={{ flex:1, overflowY:"auto", padding:"0 16px 16px" }}>
+        {!query && (
+          <>
+            {/* Trending */}
+            <div style={{ marginBottom:22 }}>
+              <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:700, color:c.sub }}>🔥 Trending this week</span>
               </div>
-              <div style={{ display:"flex", gap:12, paddingLeft:16, paddingRight:16, overflowX:"auto", scrollbarWidth:"none", paddingBottom:4 }}>
-                {NEARBY.map((place,i) => {
-                  const P = PLATFORMS[place.platform];
-                  return (
-                    <button key={i} onMouseDown={e=>{e.preventDefault();doSearch(place.topItem);}} style={{ flexShrink:0, width:165, background:c.surface, border:`1px solid ${c.border}`, borderRadius:16, overflow:"hidden", cursor:"pointer", textAlign:"left" }}>
-                      <img src={place.img} alt="" style={{ width:"100%", height:88, objectFit:"cover", display:"block" }} onError={e=>e.target.style.display="none"}/>
-                      <div style={{ padding:"9px 11px" }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{place.name}</div>
-                        <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:3 }}>
-                          <Ico.Pin s={9} c={c.sub}/>
-                          <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{place.district}</span>
-                          <span style={{ fontSize:9, color:c.sub }}>·</span>
-                          <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{place.deals} deals</span>
-                        </div>
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:7 }}>
-                          <div>
-                            <div style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:80 }}>{place.topItem}</div>
-                            <div style={{ fontSize:14, fontWeight:800, color:c.accent, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>QAR {place.price}</div>
-                          </div>
-                          <div style={{ background:`${P.color}15`, border:`1px solid ${P.color}30`, borderRadius:6, padding:"2px 6px" }}>
-                            <span style={{ fontSize:9, fontWeight:700, color:P.color, fontFamily:"'DM Sans',sans-serif" }}>{P.label}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Top 5 */}
-            <div style={{ padding:"0 16px", marginBottom:20 }}>
-              <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>Top 5 This Week</div>
-              <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-                {TOP5_SEARCH.map((item,i) => {
-                  const P = PLATFORMS[item.platform];
-                  return (
-                    <button key={i} onMouseDown={e=>{e.preventDefault();doSearch(item.name);}} style={{ display:"flex", alignItems:"center", gap:11, background:c.surface, border:`1px solid ${i===0?c.accent+"44":c.border}`, borderRadius:13, padding:"10px 12px", cursor:"pointer", textAlign:"left", position:"relative" }}>
-                      {i===0 && <div style={{ position:"absolute", left:0, top:0, bottom:0, width:3, background:c.accent, borderRadius:"13px 0 0 13px" }}/>}
-                      <span style={{ fontSize:13, fontWeight:800, color:i===0?c.accent:c.sub, width:18, fontFamily:"'DM Sans',sans-serif", textAlign:"center", flexShrink:0 }}>{i+1}</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
-                        <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{item.vendor}</div>
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0 }}>
-                        <div style={{ background:`${P.color}15`, border:`1px solid ${P.color}30`, borderRadius:6, padding:"2px 6px" }}>
-                          <span style={{ fontSize:9, fontWeight:700, color:P.color, fontFamily:"'DM Sans',sans-serif" }}>{P.label}</span>
-                        </div>
-                        <span style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>QAR {item.price}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Category grid */}
-            <div style={{ padding:"0 16px" }}>
-              <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>Browse by Category</div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
-                {CATS.map(cat => (
-                  <button key={cat.key} onClick={()=>{ setQuery(cat.label); setTimeout(()=>doSearch(cat.label),50); }} style={{ aspectRatio:"1", background:c.surface, border:`1px solid ${c.border}`, borderRadius:16, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:7, cursor:"pointer", transition:"all 0.2s" }}
-                    onMouseOver={e=>{ e.currentTarget.style.borderColor=c.accent+"55"; e.currentTarget.style.background=`${c.accent}08`; }}
-                    onMouseOut={e=>{ e.currentTarget.style.borderColor=c.border; e.currentTarget.style.background=c.surface; }}
-                  >
-                    <CatIcon cat={cat.key} color={c.sub} size={22}/>
-                    <span style={{ fontSize:11, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{cat.label}</span>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {[
+                  { rank:1, term:"Kabsa under 50",         meta:"324 finds · ↑ 47%" },
+                  { rank:2, term:"Carrefour weekly offers",meta:"187 finds · ↑ 23%" },
+                  { rank:3, term:"iPhone 15 case",         meta:"156 finds · ↑ 19%" },
+                ].map(t => (
+                  <button key={t.rank} onClick={()=>setQuery(t.term)} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, cursor:"pointer", textAlign:"left", width:"100%" }}>
+                    <div style={{ width:28, height:28, borderRadius:7, background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, color:c.btnText, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:800, flexShrink:0 }}>{t.rank}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13.5, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.015em" }}>{t.term}</div>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:c.sub, marginTop:1 }}>{t.meta}</div>
+                    </div>
+                    <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>→</span>
                   </button>
                 ))}
               </div>
             </div>
-            <div style={{ height:20 }}/>
-          </div>
-        )}
 
-        {/* ── TYPEAHEAD ── */}
-        {focused && !submitted && (
-          <div style={{ padding:"0 16px", animation:"fu 0.15s ease both" }}>
-            <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Suggestions</div>
-            {SUGGESTIONS.filter(s=>!query||s.toLowerCase().includes(query.toLowerCase())).map(sug=>(
-              <button key={sug} onMouseDown={e=>{e.preventDefault();doSearch(sug);}} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 0", background:"none", border:"none", borderBottom:`1px solid ${c.border}`, cursor:"pointer", textAlign:"left" }}>
-                <Ico.Search s={13} c={c.sub}/>
-                <span style={{ fontSize:14, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{sug}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* ── RESULTS ── */}
-        {submitted && !focused && (
-          <div style={{ animation:"fu 0.3s ease both" }}>
-
-            {/* Result type filters */}
-            <div style={{ paddingBottom:12, overflowX:"auto", scrollbarWidth:"none" }}>
-              <div style={{ display:"flex", gap:7, paddingLeft:16, paddingRight:16 }}>
-                {FILTER_TYPES.map(f => {
-                  const active = filterType===f.key;
+            {/* Browse categories */}
+            <div>
+              <div style={{ marginBottom:10 }}>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:700, color:c.sub }}>Browse</span>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8 }}>
+                {CATS.map(cat => {
+                  const cnt = liveDeals.filter(d => d.cat === cat.key).length;
+                  const catCol = CATEGORY_COLORS[cat.key] || c.gold;
                   return (
-                    <button key={f.key} onClick={()=>setFilterType(f.key)} style={{ flexShrink:0, padding:"7px 14px", background:active?c.btnBg:c.surface, color:active?c.btnText:c.sub, border:`1.5px solid ${active?"transparent":c.border}`, borderRadius:20, fontSize:12, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.18s", whiteSpace:"nowrap" }}>
-                      {f.label}
+                    <button key={cat.key} onClick={()=>setQuery(cat.label)} style={{ aspectRatio:"1", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:10, display:"flex", flexDirection:"column", alignItems:"flex-start", justifyContent:"space-between", position:"relative", overflow:"hidden", cursor:"pointer" }}>
+                      <div style={{ position:"absolute", bottom:-20, right:-20, width:60, height:60, background:catCol, opacity:0.12, borderRadius:"50%" }}/>
+                      <span style={{ fontSize:24, lineHeight:1, position:"relative" }}>{cat.emoji}</span>
+                      <div style={{ position:"relative", textAlign:"left" }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:c.text, letterSpacing:"-0.015em", fontFamily:"'DM Sans',sans-serif" }}>{cat.label}</div>
+                        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:c.sub, letterSpacing:"0.04em", fontWeight:600, marginTop:1 }}>{cnt} finds</div>
+                      </div>
                     </button>
                   );
                 })}
               </div>
             </div>
+          </>
+        )}
 
-            {/* Sort — only for All Results and Items */}
-            {(filterType==="all"||filterType==="items") && (
-              <div style={{ padding:"0 16px 12px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <div>
-                  <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{submitted}</div>
-                  <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>
-                    {rawResults.length} results · save up to <span style={{ color:c.text, fontWeight:700 }}>QAR {saving}</span>
-                  </div>
-                </div>
-                <div style={{ display:"flex", gap:4 }}>
-                  {[{k:"price",l:"Price"},{k:"total",l:"Total"},{k:"rating",l:"Rating"}].map(s=>(
-                    <button key={s.k} onClick={()=>setSortBy(s.k)} style={{ padding:"5px 9px", background:sortBy===s.k?c.accent:"transparent", border:`1px solid ${sortBy===s.k?"transparent":c.border}`, borderRadius:8, fontSize:10, fontWeight:700, color:sortBy===s.k?"#FFFFFF":c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.15s" }}>{s.l}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Price spread — all/items only */}
-            {(filterType==="all"||filterType==="items") && (
-              <div style={{ padding:"0 16px 14px" }}>
-                <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, padding:"11px 13px" }}>
-                  <div style={{ fontSize:10, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:7, fontFamily:"'DM Sans',sans-serif" }}>Price spread across platforms</div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:13, fontWeight:800, color:c.accent, fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}>QAR {lowest}</span>
-                    <div style={{ flex:1, height:5, borderRadius:99, background:c.muted, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:"100%", background:`linear-gradient(90deg,${c.accent},${c.border})`, borderRadius:99 }}/>
-                    </div>
-                    <span style={{ fontSize:13, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap" }}>QAR {highest}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── All Results / Items view ── */}
-            {(filterType==="all"||filterType==="items") && (
-              <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:10 }}>
-                {sorted.map((r,i) => {
-                  const P = PLATFORMS[r.platform]; const best = i===0;
-                  return (
-                    <div key={i} style={{ background:best?`${c.accent}0C`:c.surface, border:`1.5px solid ${best?c.accent+"55":c.border}`, borderRadius:16, padding:"13px 13px", position:"relative", overflow:"hidden", animation:`fu 0.35s ease ${i*0.06}s both` }}>
-                      {best && <div style={{ position:"absolute", top:0, left:0, right:0, height:2.5, background:`linear-gradient(90deg,${c.accent},transparent)` }}/>}
-                      <div style={{ display:"flex", alignItems:"center", gap:11 }}>
-                        <div style={{ width:22, height:22, borderRadius:7, background:best?c.accent:c.pill, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                          <span style={{ fontSize:11, fontWeight:800, color:best?"#FFFFFF":c.sub, fontFamily:"'DM Sans',sans-serif" }}>{i+1}</span>
-                        </div>
-                        <div style={{ width:46, height:46, borderRadius:11, background:best?`${c.accent}20`:c.muted, border:`1px solid ${best?c.accent+"40":c.border}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                          <CatIcon cat={r.cat || "stores"} color={best?c.accent:c.sub} size={22}/>
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", lineHeight:1.3 }}>{r.item}</div>
-                          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.vendor}</div>
-                          <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:5 }}>
-                            <div style={{ background:`${P.color}15`, border:`1px solid ${P.color}30`, borderRadius:6, padding:"2px 6px" }}>
-                              <span style={{ fontSize:9, fontWeight:700, color:P.color, fontFamily:"'DM Sans',sans-serif" }}>{P.label}</span>
-                            </div>
-                            {r.verified && <span style={{ fontSize:9, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:700 }}>✓ BKM Verified</span>}
-                          </div>
-                        </div>
-                        <div style={{ textAlign:"right", flexShrink:0 }}>
-                          <div style={{ fontSize:20, fontWeight:800, color:best?c.accent:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.03em", lineHeight:1 }}>{r.price.toFixed(2)}</div>
-                          <div style={{ fontSize:9, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>QAR</div>
-                          <div style={{ fontSize:10, marginTop:3, fontFamily:"'DM Sans',sans-serif" }}>
-                            {r.deliveryFee===0 ? <span style={{ color:"#16A34A", fontWeight:600 }}>Free delivery</span> : <span style={{ color:c.sub }}>+{r.deliveryFee} delivery</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                          <ColorAvatar user={{username:r.postedBy, av:r.postedBy}} size={18}/>
-                          <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>by <span style={{ color:c.text, fontWeight:600 }}>{r.postedBy}</span></span>
-                          <TierBadge user={{rank:r.rank, founder:false}} size="sm"/>
-                        </div>
-                        <span style={{ fontSize:10, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{Number(r.rating||0).toFixed(1)}</span>
-                      </div>
-                      {best && (
-                        <button style={{ marginTop:10, width:"100%", background:c.accent, border:"none", borderRadius:10, padding:"10px 0", fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
-                          Open in {P.label}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Empty state — when nothing matches in any filter */}
+        {query && (
+          <div style={{ display:"flex", flexDirection:"column" }}>
             {(() => {
-              const counts = {
-                all:       sorted.length + userResults.length + locationResults.length,
-                items:     sorted.length,
-                users:     userResults.length,
-                locations: locationResults.length,
-                stores:    locationResults.length,
-              };
-              if (counts[filterType] > 0) return null;
-              return (
-                <div style={{ padding:"40px 24px", textAlign:"center", animation:"fu 0.3s ease both" }}>
-                  <div style={{ width:64, height:64, margin:"0 auto 14px", borderRadius:"50%", background:c.muted, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              const q = query.toLowerCase().trim();
+              const results = (liveDeals || []).filter(d => {
+                const subj = (d.subject || "").toLowerCase();
+                const place = (d.place || "").toLowerCase();
+                const cat = (d.cat || "").toLowerCase();
+                const items = Array.isArray(d.items) ? d.items.map(i=>(i.n||"").toLowerCase()).join(" ") : "";
+                return subj.includes(q) || place.includes(q) || cat.includes(q) || items.includes(q);
+              }).slice(0, 30);
+
+              if (results.length === 0) {
+                return (
+                  <div style={{ textAlign:"center", padding:"40px 20px", color:c.sub }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>No matches for "{query}"</div>
+                    <div style={{ fontSize:11.5, fontFamily:"'DM Sans',sans-serif" }}>Try a broader term or browse by category.</div>
                   </div>
-                  <div style={{ fontSize:15, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6 }}>No matches for "{submitted}"</div>
-                  <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5, maxWidth:260, margin:"0 auto" }}>
-                    Try a different keyword or be the first to post a deal about it.
-                  </div>
-                </div>
-              );
+                );
+              }
+              return results.map(d => {
+                const hydrated = { ...d, user: d.user || { username:"someone", rank:0, founder:false }, ups: d.ups || 0, downs: d.downs || 0, claims: d.claims || 0 };
+                return <DealCard key={d.id} deal={hydrated} c={c} theme={theme} claimed={false} onClaim={()=>{}} vote={null} onVote={()=>{}} bookmarked={false} onBookmark={()=>{}} onUserTap={()=>{}} onLocationTap={onLocationTap||(()=>{})} onOpenPost={()=>{}} limitReached={false}/>;
+              });
             })()}
-
-            {/* ── Users view ── */}
-            {filterType==="users" && (
-              <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:10 }}>
-                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:4 }}>
-                  {userResults.length ? `${userResults.length} user${userResults.length>1?"s":""} found` : "No users found for this search"}
-                </div>
-                {userResults.map((u,i) => (
-                  <div key={i} style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"13px 14px", display:"flex", alignItems:"center", gap:12, animation:`fu 0.35s ease ${i*0.08}s both` }}>
-                    <Avatar user={u} size={44}/>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{u.username}</div>
-                      {u.name && <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>{u.name}</div>}
-                      {u.caption && <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2, fontStyle:"italic" }}>{u.caption}</div>}
-                      <div style={{ display:"flex", gap:12, marginTop:6 }}>
-                        <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}><span style={{ color:c.text, fontWeight:700 }}>{u.deals}</span> deals</span>
-                        <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}><span style={{ color:c.text, fontWeight:700 }}>{u.followers>=1000?`${(u.followers/1000).toFixed(1)}k`:u.followers}</span> followers</span>
-                      </div>
-                    </div>
-                    <div style={{ textAlign:"right" }}>
-                      <TierBadge user={u} size="sm"/>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ── Locations / Stores view ── */}
-            {(filterType==="locations"||filterType==="stores") && (
-              <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:10 }}>
-                <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginBottom:4 }}>
-                  {locationResults.length ? `${locationResults.length} location${locationResults.length>1?"s":""} found` : "No locations found for this search"}
-                </div>
-                {locationResults.map((d,i) => {
-                  const P = PLATFORMS[d.platform] || PLATFORM_META.store;
-                  return (
-                    <div key={i} style={{ background:c.surface, border:`1px solid ${i===0?c.accent+"44":c.border}`, borderRadius:14, overflow:"hidden", animation:`fu 0.35s ease ${i*0.08}s both` }}>
-                      <img src={d.img} alt="" style={{ width:"100%", height:80, objectFit:"cover", display:"block" }} onError={e=>e.target.style.display="none"}/>
-                      <div style={{ padding:"12px 14px", display:"flex", alignItems:"center", gap:12 }}>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{d.place}</div>
-                          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{d.address}</div>
-                          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5 }}>
-                            <div style={{ background:`${P.color}15`, border:`1px solid ${P.color}30`, borderRadius:6, padding:"2px 6px" }}>
-                              <span style={{ fontSize:9, fontWeight:700, color:P.color, fontFamily:"'DM Sans',sans-serif" }}>{P.label}</span>
-                            </div>
-                            <Ico.Pin s={10} c={c.accent}/>
-                            <span style={{ fontSize:10, color:c.accent, fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>{d.district}</span>
-                          </div>
-                        </div>
-                        <div style={{ textAlign:"right" }}>
-                          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>{d.items.length} item{d.items.length>1?"s":""}</div>
-                          <div style={{ fontSize:16, fontWeight:800, color:c.accent, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>from QAR {Math.min(...d.items.map(it=>it.p)).toFixed(2)}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div style={{ height:20 }}/>
           </div>
         )}
       </div>
@@ -5854,109 +5599,108 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
   });
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:c.bg }}>
       {/* Header */}
-      <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${c.border}`, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
-        <div style={{ ...a(0) }}>
-          <div style={{ fontSize:20, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.02em" }}>Communities</div>
-          <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:1 }}>Find your people in Doha</div>
-        </div>
-        <button onClick={()=>{ sfx.tap(); onCreateCommunity(); }} style={{ display:"flex", alignItems:"center", gap:5, background:c.accent, border:"none", borderRadius:11, padding:"9px 13px", cursor:"pointer", flexShrink:0 }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-          <span style={{ fontSize:12, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>Create</span>
+      <div style={{ padding:"14px 18px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <span style={{ fontWeight:700, fontSize:22, letterSpacing:"-0.025em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>
+          Your <span style={{ color:c.goldSoft||c.gold, fontStyle:"italic", fontWeight:500 }}>rooms</span>
+        </span>
+        <button onClick={onCreateCommunity} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"8px 14px", background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, border:"none", borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:700, color:c.btnText, boxShadow:`0 3px 12px ${c.gold}33`, cursor:"pointer", letterSpacing:"-0.005em" }}>
+          + New
         </button>
       </div>
 
       {/* Search */}
-      <div style={{ padding:"10px 16px 8px", flexShrink:0 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:9, background:c.surface, border:`1.5px solid ${c.border}`, borderRadius:12, padding:"10px 14px" }}>
-          <Ico.Search s={15} c={c.sub}/>
-          <input
-            value={search}
-            onChange={e=>setSearch(e.target.value)}
-            placeholder="Search communities..."
-            style={{ flex:1, background:"none", border:"none", fontSize:15, color:c.text, fontFamily:"'DM Sans',sans-serif", outline:"none", minWidth:0 }}
-          />
-        </div>
+      <div style={{ margin:"0 16px 16px", display:"flex", alignItems:"center", gap:9, padding:"11px 14px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:13 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c.sub} strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find a room" style={{ flex:1, background:"transparent", border:"none", outline:"none", fontSize:13, color:c.text, fontFamily:"'DM Sans',sans-serif" }}/>
       </div>
 
-      {/* Filter pills */}
-      <div style={{ padding:"4px 16px 12px", flexShrink:0, overflowX:"auto", display:"flex", gap:7 }}>
-        {[
-          { key:"all",   label:"All" },
-          { key:"mine",  label:`Joined${myCommunities.size>0?` (${myCommunities.size})`:""}` },
-          { key:"owned", label:`Owned${ownedCount>0?` (${ownedCount})`:""}` },
-          ...COMMUNITY_CATEGORIES.slice(0, 7).map(cat => ({ key: cat.key, label: cat.label })),
-        ].map(p => (
-          <button key={p.key} onClick={()=>{ sfx.tap(); setFilter(p.key); }} style={{
-            background: filter===p.key ? c.accent : "transparent",
-            color: filter===p.key ? "#FFFFFF" : c.sub,
-            border: filter===p.key ? "none" : `1px solid ${c.border}`,
-            borderRadius:18, padding:"6px 13px",
-            fontSize:11, fontWeight:600, fontFamily:"'DM Sans',sans-serif",
-            cursor:"pointer", flexShrink:0, whiteSpace:"nowrap",
-            transition:"all 0.15s",
-          }}>{p.label}</button>
-        ))}
-      </div>
+      <div style={{ flex:1, overflowY:"auto", paddingBottom:12 }}>
+        {(() => {
+          const all = communities || [];
+          const joinedList = all.filter(co => myCommunities.has(co.id));
+          const discoverList = all.filter(co => !myCommunities.has(co.id)).slice(0, 6);
+          const matchesSearch = (co) => {
+            if (!search.trim()) return true;
+            const q = search.toLowerCase().trim();
+            return co.name.toLowerCase().includes(q) || (co.description||"").toLowerCase().includes(q);
+          };
+          const joinedFiltered = joinedList.filter(matchesSearch);
+          const discoverFiltered = discoverList.filter(matchesSearch);
 
-      {/* List */}
-      <div style={{ flex:1, overflowY:"auto", padding:"4px 16px 24px" }}>
-        {/* Your Communities — prominent quick access when user has memberships and viewing All */}
-        {filter === "all" && !search.trim() && myCommunities.size > 0 && (
-          <div style={{ marginBottom:16, padding:"14px 14px 12px", background:`linear-gradient(135deg, ${c.accent}10, ${c.accent}03)`, border:`1px solid ${c.accent}30`, borderRadius:14, ...a(0.03) }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-              <div style={{ fontSize:11, fontWeight:800, color:c.accent, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>Your Communities</div>
-              <button onClick={()=>{ sfx.tap(); setFilter("mine"); }} style={{ background:"none", border:"none", color:c.accent, fontSize:11, fontWeight:700, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", padding:0 }}>
-                See all {myCommunities.size} →
-              </button>
-            </div>
-            <div style={{ display:"flex", gap:8, overflowX:"auto", margin:"0 -14px", padding:"0 14px", scrollbarWidth:"none" }}>
-              {communities.filter(co => myCommunities.has(co.id)).slice(0, 6).map(co => {
-                const role = myCommunities.get(co.id)?.role;
-                return (
-                  <button key={co.id} onClick={()=>{ sfx.tap(); onOpenCommunity(co.id); }} style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:6, padding:"4px 0", width:74, background:"none", border:"none", cursor:"pointer" }}>
-                    <div style={{ position:"relative", width:54, height:54, borderRadius:14, background:`linear-gradient(135deg, ${c.accent}, ${c.accent}88)`, display:"flex", alignItems:"center", justifyContent:"center", color:"#FFFFFF", fontSize:20, fontWeight:800, fontFamily:"'DM Sans',sans-serif" }}>
-                      {co.name?.[0]?.toUpperCase() || "C"}
-                      {role === "owner" && (
-                        <div style={{ position:"absolute", bottom:-2, right:-2, width:18, height:18, borderRadius:"50%", background:"#FFD17A", border:`2px solid ${c.bg}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="#1C1208" stroke="none"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm0 3h14v2H5z"/></svg>
+          return (
+            <>
+              {/* Joined section */}
+              <div style={{ padding:"0 18px 8px", display:"flex", alignItems:"baseline", justifyContent:"space-between" }}>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:700, color:c.sub }}>
+                  Joined <span style={{ color:c.gold, marginLeft:4 }}>{joinedList.length}</span>
+                </span>
+              </div>
+
+              {joinedFiltered.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"24px 24px 8px", color:c.sub }}>
+                  <div style={{ fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>You haven't joined any rooms yet. Browse below.</div>
+                </div>
+              ) : (
+                <div style={{ padding:"0 16px 16px", display:"flex", flexDirection:"column", gap:8 }}>
+                  {joinedFiltered.map(co => {
+                    const memberInfo = myCommunities.get(co.id);
+                    const role = memberInfo?.role;
+                    const memberCount = co.memberCount || 0;
+                    const roomCol = co.color || c.gold;
+                    return (
+                      <button key={co.id} onClick={()=>onOpenCommunity && onOpenCommunity(co.id)} style={{ display:"grid", gridTemplateColumns:"44px 1fr auto", gap:10, padding:"11px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, alignItems:"center", position:"relative", textAlign:"left", cursor:"pointer" }}>
+                        <div style={{ width:44, height:44, borderRadius:11, background:`linear-gradient(135deg, ${roomCol}, ${c.accent})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, position:"relative", flexShrink:0 }}>
+                          {co.emoji || co.name?.[0] || "#"}
                         </div>
-                      )}
-                    </div>
-                    <div style={{ fontSize:10, fontWeight:600, color:c.text, fontFamily:"'DM Sans',sans-serif", textAlign:"center", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", width:"100%" }}>{co.name}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {loading ? (
-          <div style={{ textAlign:"center", padding:"60px 20px", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif" }}>Loading...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ textAlign:"center", padding:"40px 20px", color:c.sub, fontSize:13, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>
-            {filter === "mine" ? (
-              <>You haven't joined any communities yet.<br/>Browse and tap one to join.</>
-            ) : filter === "owned" ? (
-              <>You don't own any communities yet.<br/>Tap "Create" to start your own.</>
-            ) : search ? (
-              <>No communities match "{search}".</>
-            ) : communities.length === 0 ? (
-              <>
-                No communities yet — be the first.<br/>
-                <button onClick={onCreateCommunity} style={{ marginTop:14, background:c.accent, border:"none", borderRadius:11, padding:"10px 18px", color:"#FFFFFF", fontWeight:700, fontSize:13, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>Create the first one</button>
-              </>
-            ) : (
-              <>No communities in this category yet.</>
-            )}
-          </div>
-        ) : (
-          <div style={{ display:"flex", flexDirection:"column", gap:10, ...a(0.05) }}>
-            {filtered.map(co => (
-              <CommunityCard key={co.id} community={co} theme={theme} isMember={myCommunities.has(co.id)} onTap={onOpenCommunity}/>
-            ))}
-          </div>
-        )}
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontWeight:600, fontSize:14, letterSpacing:"-0.015em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{co.name}</div>
+                          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:c.sub, marginTop:2, letterSpacing:"0.04em" }}>
+                            {memberCount} members{role==="owner" && <span style={{ color:c.gold, marginLeft:6, fontWeight:700 }}>· Owner</span>}
+                          </div>
+                          {co.description && (
+                            <div style={{ fontSize:11.5, color:c.text2||c.sub, marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:"'DM Sans',sans-serif" }}>{co.description}</div>
+                          )}
+                        </div>
+                        <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>→</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Discover section */}
+              {discoverFiltered.length > 0 && (
+                <>
+                  <div style={{ padding:"0 18px 8px" }}>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:700, color:c.sub }}>Discover</span>
+                  </div>
+                  <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:6 }}>
+                    {discoverFiltered.map(co => {
+                      const roomCol = co.color || c.gold;
+                      const memberCount = co.memberCount || 0;
+                      return (
+                        <div key={co.id} style={{ padding:12, background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, display:"flex", alignItems:"center", gap:11 }}>
+                          <div style={{ width:40, height:40, borderRadius:10, background:`linear-gradient(135deg, ${roomCol}, ${c.accent})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>
+                            {co.emoji || co.name?.[0] || "#"}
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontWeight:600, fontSize:13, letterSpacing:"-0.015em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{co.name}</div>
+                            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:c.sub, marginTop:1 }}>{memberCount} members</div>
+                          </div>
+                          <button onClick={()=>onOpenCommunity && onOpenCommunity(co.id)} style={{ padding:"6px 14px", background:c.surface3||c.muted, border:`1px solid ${c.border}`, borderRadius:100, fontSize:11, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
+                            Open
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );
@@ -7057,72 +6801,52 @@ export default function BKMApp() {
           {screen==="feed"          && renderTab()}
         </div>
 
-        {/* Bottom nav — 5 tabs, split with divider */}
+        {/* Bottom nav — 5 tabs, symmetric, Post center-raised */}
         {showTabs && (
-          <div style={{ height:64, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", background:c.bg, flexShrink:0 }}>
-            {/* Left — consumer side (Feed, Search, Communities) */}
-            <div style={{ flex:1.5, display:"flex", alignItems:"center", justifyContent:"space-around" }}>
-              {[
-                { key:"feed",        label:"Feed",   Ico:Ico.Home   },
-                { key:"search",      label:"Search", Ico:Ico.Search },
-                { key:"communities", label:"Comms",  isCommunities:true },
-              ].map(item => {
-                const active = !pushedScreen && tab===item.key;
-                return (
-                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 8px" }}>
-                    {item.isCommunities ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active?c.accent:c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    ) : (
-                      <item.Ico s={20} c={active?c.accent:c.sub}/>
-                    )}
-                    <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {/* Divider */}
-            <div style={{ width:1, height:32, background:c.border, flexShrink:0 }}/>
-            {/* Right — contributor side (Post, Profile) */}
-            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"space-around" }}>
-              {[
-                { key:"post",    label:"Post",    Ico:Ico.Plus   },
-                { key:"profile", label:"Profile", Ico:Ico.Person, badge: unreadCount },
-              ].map(item => {
-                const active = !pushedScreen && tab===item.key;
-                const isPost = item.key === "post";
-                return (
-                  <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 12px", position:"relative" }}>
-                    {isPost ? (
-                      <div style={{ width:32, height:32, borderRadius:10, background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:active?`0 4px 14px ${c.gold}55`:`0 2px 8px ${c.gold}33`, transform:active?"scale(1.04)":"scale(1)", transition:"transform 0.18s, box-shadow 0.18s" }}>
-                        <item.Ico s={18} c={c.btnText}/>
-                      </div>
-                    ) : (
-                      <item.Ico s={20} c={active?c.accent:c.sub}/>
-                    )}
-                    {item.badge > 0 && (
-                      <div style={{ position:"absolute", top:2, right:6, minWidth:16, height:16, borderRadius:8, background:c.accent, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`2px solid ${c.bg}`, animation:"bellPulse 1.4s ease-in-out infinite" }}>
-                        <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{item.badge > 99 ? "99+" : item.badge}</span>
-                      </div>
-                    )}
-                    <span style={{ fontSize:9, fontWeight:active?700:400, color:active?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {/* DEV divider + tab — admin only */}
-            {isAdmin && (
-              <>
-                <div style={{ width:1, height:32, background:c.border, flexShrink:0 }}/>
-                <button onClick={()=>{ setPushed(null); setTab("dev"); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 10px", position:"relative" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={!pushedScreen&&tab==="dev"?"#1D6FEB":c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                  {pendingPosts.length > 0 && (
-                    <div style={{ position:"absolute", top:4, right:4, width:16, height:16, borderRadius:"50%", background:"#EF4444", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{pendingPosts.length}</span>
+          <div style={{ height:72, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-around", background:c.bg, flexShrink:0, padding:"0 8px" }}>
+            {[
+              { key:"feed",        label:"Feed",   Ico:Ico.Home   },
+              { key:"search",      label:"Search", Ico:Ico.Search },
+              { key:"post",        label:"Post",   Ico:Ico.Plus, isCompose:true },
+              { key:"communities", label:"Rooms",  isRooms:true },
+              { key:"profile",     label:"You",    Ico:Ico.Person, badge: unreadCount },
+            ].map(item => {
+              const active = !pushedScreen && tab===item.key;
+              return (
+                <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 10px", position:"relative", flex:1 }}>
+                  {item.isCompose ? (
+                    <div style={{ width:40, height:40, borderRadius:12, background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:active?`0 4px 18px ${c.gold}66`:`0 3px 10px ${c.gold}44`, transform:active?"scale(1.06) translateY(-4px)":"translateY(-4px)", transition:"transform 0.2s, box-shadow 0.2s" }}>
+                      <item.Ico s={20} c={c.btnText}/>
+                    </div>
+                  ) : item.isRooms ? (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active?c.text:c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  ) : (
+                    <item.Ico s={22} c={active?c.text:c.sub}/>
+                  )}
+                  {item.badge > 0 && !item.isCompose && (
+                    <div style={{ position:"absolute", top:2, right:8, minWidth:16, height:16, borderRadius:8, background:c.accent, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`2px solid ${c.bg}`, animation:"bellPulse 1.4s ease-in-out infinite" }}>
+                      <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{item.badge > 99 ? "99+" : item.badge}</span>
                     </div>
                   )}
-                  <span style={{ fontSize:9, fontWeight:!pushedScreen&&tab==="dev"?700:400, color:!pushedScreen&&tab==="dev"?"#1D6FEB":c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.04em" }}>DEV</span>
+                  {!item.isCompose && (
+                    <span style={{ fontSize:10, fontWeight:active?700:500, color:active?c.text:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>{item.label}</span>
+                  )}
+                  {!item.isCompose && active && (
+                    <div style={{ position:"absolute", bottom:-1, left:"50%", transform:"translateX(-50%)", width:14, height:1.5, background:c.gold, borderRadius:1 }}/>
+                  )}
                 </button>
-              </>
+              );
+            })}
+            {isAdmin && (
+              <button onClick={()=>{ setPushed(null); setTab("dev"); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 10px", position:"relative", flex:0.6 }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={!pushedScreen&&tab==="dev"?"#1D6FEB":c.sub} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                {pendingPosts.length > 0 && (
+                  <div style={{ position:"absolute", top:4, right:4, width:16, height:16, borderRadius:"50%", background:"#EF4444", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <span style={{ fontSize:9, fontWeight:800, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif" }}>{pendingPosts.length}</span>
+                  </div>
+                )}
+                <span style={{ fontSize:10, fontWeight:!pushedScreen&&tab==="dev"?700:500, color:!pushedScreen&&tab==="dev"?"#1D6FEB":c.sub, fontFamily:"'DM Sans',sans-serif" }}>DEV</span>
+              </button>
             )}
           </div>
         )}
