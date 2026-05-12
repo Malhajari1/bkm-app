@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v0.9.8 · live followers count";
+const APP_VERSION = "v1.0.0 · The Redesign · new cards · rooms · compose";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2415,7 +2415,7 @@ const PLATFORM_META = {
   store:   { color:"#B8860B", label:"In Store" },
 };
 
-function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, isAdmin=false, onShareBonus, onPostBetter, onReportPost, onBlockUser, onDeleteOwnPost }) {
+function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, onBookmark, onUserTap, onLocationTap, onOpenPost, limitReached, isOwn=false, isAdmin=false, onShareBonus, onPostBetter, onReportPost, onBlockUser, onDeleteOwnPost, displayMode="feed", postNumber=null }) {
   const [priceAnim, setPriceAnim]   = useState(false);
   const [upAnim, setUpAnim]         = useState(false);
   const [downAnim, setDownAnim]     = useState(false);
@@ -2482,11 +2482,18 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   // same handlers, new visual shell.
   const totalVotes = upCount + downCount;
   const helpfulRatio = totalVotes > 0 ? Math.round((upCount / totalVotes) * 100) : 0;
-  const catColor = CATEGORY_COLORS[deal.cat] || c.gold;
+  const catColor = CATEGORY_COLORS[(deal.cat||"").toLowerCase()] || CATEGORY_COLORS[deal.cat] || c.gold;
   const isHot = claimCount > 100 && helpfulRatio > 80;
   const items = Array.isArray(deal.items) ? deal.items : [];
   const firstItem = items[0] || { n: deal.subject || "Find", p: 0 };
   const extraCount = Math.max(0, items.length - 1);
+  // Deal/Tip awareness — populated when PostDeal writes postType/wasPrice (v1.0+).
+  // Older posts without these fields naturally fall through as "tip" mode.
+  const nowNum  = Number(firstItem.p) || 0;
+  const wasNum  = Number(deal.wasPrice) || 0;
+  const isDeal  = deal.postType === "deal" && wasNum > 0 && nowNum > 0 && wasNum > nowNum;
+  const savePct = isDeal ? Math.round(((wasNum - nowNum) / wasNum) * 100) : 0;
+  const saveAmt = isDeal ? (wasNum - nowNum) : 0;
 
   return (
     <div style={{ position:"relative", marginBottom:10 }}>
@@ -2508,8 +2515,8 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
         onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
         onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}
       >
-        {/* Category color stripe (left edge) */}
-        <div style={{ position:"absolute", left:-1, top:18, width:3, height:28, borderRadius:2, background:catColor }}/>
+        {/* Category color stripe — full left edge */}
+        <div style={{ position:"absolute", left:0, top:0, bottom:0, width:4, borderRadius:"18px 0 0 18px", background:catColor }}/>
 
         {/* Hot/Banner badge — top right corner */}
         {(postBanner || isOwn || isHot) && (
@@ -2540,15 +2547,40 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 
         {/* Card body */}
         <div style={{ display:"flex", flexDirection:"column", gap:7, minWidth:0 }}>
-          {/* User meta row */}
-          <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>
-            <span style={{ color:c.text, fontWeight:600 }}>@{deal.user.username || "user"}</span>
-            {isFounder && (
-              <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:13, height:13, background:c.gold, color:c.bg, borderRadius:"50%", fontSize:8, fontWeight:800, lineHeight:1 }}>✓</span>
-            )}
-            <span style={{ color: c.text2 || c.sub, fontSize:7 }}>●</span>
-            <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:10.5 }}>tier {rank}</span>
-          </div>
+          {/* Meta row — username/tier OR post#/time depending on context */}
+          {displayMode === "profile" ? (
+            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>
+              {postNumber != null && (
+                <span style={{ color:c.gold, fontFamily:"'DM Sans',sans-serif", fontWeight:700, letterSpacing:"-0.01em" }}>#{postNumber}</span>
+              )}
+              {postNumber != null && (
+                <span style={{ color: c.text2 || c.sub, fontSize:7 }}>●</span>
+              )}
+              <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:10.5 }}>
+                {(() => {
+                  const ts = deal.approvedAt || deal.createdAt;
+                  if (!ts) return "recently";
+                  const date = ts?.toDate?.() || (ts instanceof Date ? ts : new Date(ts));
+                  if (isNaN(date.getTime())) return "recently";
+                  const diff = (Date.now() - date.getTime()) / 1000;
+                  if (diff < 60)     return "just now";
+                  if (diff < 3600)   return `${Math.floor(diff/60)}m`;
+                  if (diff < 86400)  return `${Math.floor(diff/3600)}h`;
+                  if (diff < 604800) return `${Math.floor(diff/86400)}d`;
+                  return `${Math.floor(diff/604800)}w`;
+                })()}
+              </span>
+            </div>
+          ) : (
+            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>
+              <span style={{ color:c.text, fontWeight:600 }}>@{deal.user.username || "user"}</span>
+              {isFounder && (
+                <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:13, height:13, background:c.gold, color:c.bg, borderRadius:"50%", fontSize:8, fontWeight:800, lineHeight:1 }}>✓</span>
+              )}
+              <span style={{ color: c.text2 || c.sub, fontSize:7 }}>●</span>
+              <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:10.5 }}>tier {rank}</span>
+            </div>
+          )}
 
           {/* Title */}
           <div style={{
@@ -2658,16 +2690,16 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             // ─── REVEALED ───
             <div style={{
               marginTop: 3,
-              padding: "8px 10px",
+              padding: "10px 11px",
               background: `linear-gradient(135deg, ${c.gold}1A, ${c.accent}0F)`,
               borderRadius: 10,
               display: "grid",
               gridTemplateColumns: "1fr auto",
               gap: 9,
-              alignItems: "center",
+              alignItems: "flex-start",
               border: `1px solid ${c.gold}38`,
             }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0 }}>
                 <div style={{
                   width:24, height:24,
                   display:"flex", alignItems:"center", justifyContent:"center",
@@ -2675,26 +2707,92 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   color: c.bg,
                   borderRadius: 7,
                   flexShrink: 0,
+                  marginTop: 1,
                 }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                     <rect x="3" y="11" width="18" height="11" rx="2"/>
                     <path d="M7 11V7a5 5 0 019.9-1"/>
                   </svg>
                 </div>
-                <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0 }}>
-                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontWeight:700 }}>{isOwn ? "Your price" : "Revealed"}</span>
-                  <span style={{ display:"inline-flex", alignItems:"baseline", gap:5, flexWrap:"wrap" }}>
-                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:700, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
-                      {firstItem.p ?? "—"}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
-                    </span>
-                    {extraCount > 0 && (
-                      <span style={{ fontSize:10, color:c.sub, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>+ {extraCount} more</span>
+                <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0, flex:1 }}>
+                  {/* Label row */}
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+                    <span>{isOwn ? "Your price" : (isDeal ? "Deal · Revealed" : "Revealed")}</span>
+                    {items.length > 1 && (
+                      <span style={{ color:c.sub, fontWeight:600 }}>· {items.length} items</span>
                     )}
-                  </span>
+                  </div>
+
+                  {items.length <= 1 ? (
+                    // ─── Single item: name + price (+ was/save for deals) ───
+                    <>
+                      <div style={{
+                        fontFamily:"'DM Sans',sans-serif",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: c.text,
+                        lineHeight: 1.3,
+                        letterSpacing: "-0.015em",
+                        marginTop: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {firstItem.n || deal.subject || "Item"}
+                      </div>
+                      <div style={{ display:"inline-flex", alignItems:"baseline", gap:6, flexWrap:"wrap", marginTop:2 }}>
+                        <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:800, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
+                          {nowNum > 0 ? nowNum : "—"}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                        </span>
+                        {isDeal && (
+                          <>
+                            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10.5, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {wasNum}</span>
+                            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"2px 6px", borderRadius:4, letterSpacing:"0.04em" }}>
+                              −{savePct}%
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {isDeal && saveAmt > 0 && (
+                        <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.positive, marginTop:1, fontWeight:500 }}>
+                          Saves {saveAmt.toFixed(0)} QAR
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    // ─── Multi-item: itemized list ───
+                    <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:2 }}>
+                      {items.slice(0, 4).map((it, i) => (
+                        <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:8, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, alignItems:"baseline" }}>
+                          <span style={{ color:c.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, fontWeight:500 }}>
+                            <span style={{ color:c.sub, marginRight:5 }}>·</span>{it.n || `Item ${i+1}`}
+                          </span>
+                          <span style={{ color:c.text, fontWeight:700, flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>
+                            {it.p ?? "—"}<span style={{ fontSize:9, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span>
+                          </span>
+                        </div>
+                      ))}
+                      {items.length > 4 && (
+                        <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.sub, marginTop:1 }}>
+                          + {items.length - 4} more in post
+                        </div>
+                      )}
+                      {/* Total */}
+                      {(() => {
+                        const total = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
+                        return total > 0 ? (
+                          <div style={{ marginTop:4, paddingTop:4, borderTop:`1px dashed ${c.gold}55`, display:"flex", justifyContent:"space-between", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700 }}>
+                            <span style={{ color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase", fontSize:9 }}>Total</span>
+                            <span style={{ color:c.text, letterSpacing:"-0.02em" }}>{total.toFixed(0)}<span style={{ fontSize:9, color:c.sub, marginLeft:2 }}>QAR</span></span>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
                 </div>
               </div>
               {/* Vote thumbs (inline after reveal) */}
-              <div style={{ display:"flex", gap:4 }}>
+              <div style={{ display:"flex", gap:4, flexShrink:0 }}>
                 <button
                   onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("up"); }}
                   disabled={!canVote}
@@ -2750,26 +2848,195 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             </span>
           </div>
 
-          {/* Bookmark icon, inline at far right of the meta row (subtle) */}
-          {!isOwn && (
+          {/* Top-right actions: bookmark + more menu */}
+          <div style={{
+            position: "absolute",
+            top: (postBanner || isOwn || isHot) ? 36 : 8,
+            right: 8,
+            display: "flex",
+            gap: 2,
+            zIndex: 3,
+          }}>
+            {!isOwn && (
+              <button
+                onClick={(e)=>{ e.stopPropagation(); handleBookmark(); }}
+                aria-label="Bookmark"
+                style={{
+                  width:28, height:28,
+                  background:"transparent",
+                  border:"none",
+                  cursor:"pointer",
+                  color: bookmarked ? c.gold : c.sub,
+                  transform: bmarkAnim ? "scale(1.3)" : "scale(1)",
+                  transition:"all 0.2s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  borderRadius: 6,
+                }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
+                </svg>
+              </button>
+            )}
             <button
-              onClick={(e)=>{ e.stopPropagation(); handleBookmark(); }}
+              onClick={(e)=>{ e.stopPropagation(); setShowMoreMenu(s=>!s); }}
+              aria-label="More"
               style={{
-                position:"absolute",
-                top:10, right: (postBanner || isOwn || isHot) ? 75 : 10,
-                width:24, height:24,
-                background:"transparent",
+                width:28, height:28,
+                background: showMoreMenu ? (c.surface3 || c.muted) : "transparent",
                 border:"none",
                 cursor:"pointer",
-                color: bookmarked ? c.gold : c.sub,
-                transform: bmarkAnim ? "scale(1.3)" : "scale(1)",
-                transition:"all 0.2s cubic-bezier(0.34, 1.5, 0.64, 1)",
-                zIndex: 2,
+                color: c.text2 || c.sub,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                borderRadius: 6,
+                transition: "background 0.18s",
               }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-                <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
-              </svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
             </button>
+          </div>
+
+          {/* More menu popup */}
+          {showMoreMenu && (
+            <>
+              {/* Backdrop to close on tap-away */}
+              <div
+                onClick={(e)=>{ e.stopPropagation(); setShowMoreMenu(false); }}
+                style={{ position:"fixed", inset:0, zIndex:60, background:"transparent" }}
+              />
+              {/* Menu */}
+              <div
+                onClick={(e)=>e.stopPropagation()}
+                style={{
+                  position:"absolute",
+                  top: (postBanner || isOwn || isHot) ? 68 : 40,
+                  right: 8,
+                  minWidth: 180,
+                  background: c.surface,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: 12,
+                  boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+                  zIndex: 61,
+                  overflow: "hidden",
+                  fontFamily: "'DM Sans',sans-serif",
+                }}>
+                {[
+                  {
+                    key:"share",
+                    label:"Share post",
+                    icon:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>,
+                    show: true,
+                    color: c.text,
+                    onClick: () => {
+                      setShowMoreMenu(false);
+                      const url = (typeof window !== "undefined") ? `${window.location.origin}${window.location.pathname}?post=${deal.id}` : "";
+                      const shareTitle = `Find on BKM: ${firstItem.n || deal.subject || "Hot find"}`;
+                      const shareText = `${deal.subject || firstItem.n || "Check out this find"} — by @${deal.user?.username || "user"}`;
+                      try {
+                        if (typeof navigator !== "undefined" && navigator.share) {
+                          navigator.share({ title: shareTitle, text: shareText, url }).then(()=>{
+                            onShareBonus && onShareBonus(3);
+                          }).catch(()=>{});
+                        } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                          navigator.clipboard.writeText(url).catch(()=>{});
+                        }
+                      } catch (e) {}
+                    },
+                  },
+                  {
+                    key:"better",
+                    label:"Post a better price",
+                    icon:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>,
+                    show: !isOwn && !!onPostBetter,
+                    color: c.gold,
+                    onClick: () => { setShowMoreMenu(false); onPostBetter && onPostBetter(deal); },
+                  },
+                  {
+                    key:"report",
+                    label:"Report post",
+                    icon:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="22" x2="4" y2="15"/><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>,
+                    show: !isOwn,
+                    color: c.text,
+                    onClick: () => { setShowMoreMenu(false); onReportPost && onReportPost(deal); },
+                  },
+                  {
+                    key:"block",
+                    label:"Block user",
+                    icon:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
+                    show: !isOwn,
+                    color: c.text,
+                    onClick: () => { setShowMoreMenu(false); onBlockUser && onBlockUser(deal.user); },
+                  },
+                  {
+                    key:"delete-own",
+                    label:"Delete post",
+                    icon:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>,
+                    show: isOwn,
+                    color: "#EF4444",
+                    onClick: () => { setShowMoreMenu(false); setShowDeleteConfirm(true); },
+                  },
+                  {
+                    key:"delete-admin",
+                    label:"Delete (admin)",
+                    icon:<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>,
+                    show: !isOwn && isAdmin,
+                    color: "#EF4444",
+                    onClick: () => { setShowMoreMenu(false); setShowDeleteConfirm(true); },
+                  },
+                ].filter(o => o.show).map((o, i, arr) => (
+                  <button
+                    key={o.key}
+                    onClick={o.onClick}
+                    style={{
+                      display:"flex", alignItems:"center", gap:10,
+                      width:"100%",
+                      padding:"11px 14px",
+                      background:"transparent",
+                      border:"none",
+                      borderBottom: i < arr.length - 1 ? `1px solid ${c.border}` : "none",
+                      cursor:"pointer",
+                      textAlign:"left",
+                      fontFamily:"'DM Sans',sans-serif",
+                      fontSize:13,
+                      fontWeight:600,
+                      color: o.color,
+                    }}
+                    onMouseOver={e=>e.currentTarget.style.background=c.surface2 || c.muted}
+                    onMouseOut={e=>e.currentTarget.style.background="transparent"}
+                  >
+                    <span style={{ display:"inline-flex", color:o.color }}>{o.icon}</span>
+                    <span>{o.label}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Delete confirm dialog */}
+          {showDeleteConfirm && (
+            <div
+              onClick={(e)=>{ e.stopPropagation(); setShowDeleteConfirm(false); }}
+              style={{ position:"fixed", inset:0, zIndex:80, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+              <div
+                onClick={(e)=>e.stopPropagation()}
+                style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:18, padding:"22px 22px 18px", maxWidth:320, width:"100%", boxShadow:"0 12px 40px rgba(0,0,0,0.5)" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:700, color:c.text, letterSpacing:"-0.02em", marginBottom:8 }}>Delete this post?</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:c.sub, lineHeight:1.5, marginBottom:18 }}>This can't be undone. The post and its comments will be removed.</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button
+                    onClick={()=>setShowDeleteConfirm(false)}
+                    style={{ flex:1, padding:"11px 0", background:"transparent", border:`1px solid ${c.border}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:600, color:c.text, cursor:"pointer" }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={()=>{
+                      setShowDeleteConfirm(false);
+                      onDeleteOwnPost && onDeleteOwnPost(deal.id);
+                    }}
+                    style={{ flex:1, padding:"11px 0", background:"#EF4444", border:"none", borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, color:"#FFFFFF", cursor:"pointer" }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -3382,6 +3649,8 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
   const [cat, setCat]           = useState(prefill?.cat||"");
   const [platform, setPlatform] = useState(prefill?.platform||"");
   const [items, setItems]       = useState([{ n:"", p:"" }]);
+  const [postType, setPostType] = useState("deal");   // "deal" = type 1 (was/now) | "tip" = type 2 (single price)
+  const [wasPrice, setWasPrice] = useState("");        // only used when postType === "deal"
   const [on, setOn]             = useState(false);
   const c = TH[theme];
   useEffect(()=>{ if(prefill&&onClearPrefill) onClearPrefill(); },[]);
@@ -3401,11 +3670,28 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
   const addItem    = () => setItems(x=>[...x,{n:"",p:""}]);
   const updateItem = (i,f,v) => setItems(x=>x.map((it,idx)=>idx===i?{...it,[f]:v}:it));
   const removeItem = (i) => setItems(x=>x.filter((_,idx)=>idx!==i));
-  const ready      = subject && place && district && cat && platform && items.some(it=>it.n&&it.p);
+
+  // Auto-mirror the subject into the first item's name so user only types it once.
+  // Auto-derive "Save X / X% off" when both was + now are present in deal mode.
+  const nowPrice = Number(items[0]?.p) || 0;
+  const wasNum   = Number(wasPrice) || 0;
+  const savings  = (postType === "deal" && wasNum > 0 && nowPrice > 0 && wasNum > nowPrice) ? (wasNum - nowPrice) : 0;
+  const savePct  = (savings > 0) ? Math.round((savings / wasNum) * 100) : 0;
+
+  const ready = subject && place && district && cat && platform && nowPrice > 0
+    && (postType !== "deal" || (wasNum > 0 && wasNum > nowPrice));
 
   const handleSubmit = () => {
     if (!ready) return;
-    const post = { subject, place, district, cat, platform, items:items.filter(i=>i.n&&i.p), address:district };
+    const firstItem = { n: subject, p: nowPrice };
+    const extraItems = items.slice(1).filter(i=>i.n&&i.p);
+    const post = {
+      subject, place, district, cat, platform,
+      items: [firstItem, ...extraItems],
+      address: district,
+      postType,                                              // "deal" | "tip"
+      wasPrice: postType === "deal" ? wasNum : null,         // null on tips for clarity
+    };
     onSubmit && onSubmit(post);
     setStep("submitted");
     setTimeout(()=>{ onBack(); }, 2200);
@@ -3476,6 +3762,27 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Type toggle — Deal (was/now) vs Tip (single price) */}
+        <div style={{ padding:"18px 16px 4px" }}>
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:7 }}>
+            Post type <span style={{ color:c.gold }}>·</span>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, padding:4, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12 }}>
+            {[
+              { key:"deal", num:"Type 01", desc:"It's a deal" },
+              { key:"tip",  num:"Type 02", desc:"Price tip"   },
+            ].map(opt => {
+              const active = postType === opt.key;
+              return (
+                <button key={opt.key} onClick={()=>setPostType(opt.key)} style={{ padding:"10px 10px", borderRadius:9, display:"flex", flexDirection:"column", gap:2, background: active ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : "transparent", color: active ? c.btnText : c.sub, border:"none", cursor:"pointer", textAlign:"left", boxShadow: active ? `0 3px 12px ${c.gold}33` : "none", transition:"all 0.18s" }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, fontWeight:700, letterSpacing:"0.16em", textTransform:"uppercase", color: active ? "rgba(0,0,0,0.55)" : c.sub }}>{opt.num}</span>
+                  <span style={{ fontSize:12, fontWeight:600, letterSpacing:"-0.01em", fontFamily:"'DM Sans',sans-serif", color: active ? c.btnText : c.text }}>{opt.desc}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -3554,37 +3861,56 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
           </div>
         </div>
 
-        {/* Items */}
+        {/* Price — type-aware: deal=was/now, tip=single */}
         <div style={{ padding:"0 16px 14px" }}>
           <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
             <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
-              Items + price <span style={{ color:c.gold }}>·</span>
+              {postType === "deal" ? "Was / now price" : "Price"} <span style={{ color:c.gold }}>·</span>
             </span>
-            <button onClick={addItem} style={{ background:"none", border:"none", cursor:"pointer", color:c.gold, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, letterSpacing:"-0.01em" }}>+ Add item</button>
           </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {items.map((item, idx) => (
-              <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 90px auto", gap:5 }}>
-                <input value={item.n} onChange={e=>updateItem(idx,"n",e.target.value)} placeholder="Item name" style={{ padding:"10px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.border}/>
-                <div style={{ position:"relative" }}>
-                  <input value={item.p} onChange={e=>updateItem(idx,"p",e.target.value.replace(/[^0-9.]/g,""))} placeholder="0" inputMode="decimal" style={{ width:"100%", padding:"10px 36px 10px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.border}/>
-                  <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+
+          {postType === "deal" ? (
+            <>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
+                {/* Was */}
+                <div>
+                  <div style={{ position:"relative" }}>
+                    <input value={wasPrice} onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))} placeholder="0" inputMode="decimal" style={{ width:"100%", padding:"11px 40px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight:600, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.border}/>
+                    <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+                  </div>
+                  <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.sub, marginTop:4 }}>Was</div>
                 </div>
-                {items.length > 1 && (
-                  <button onClick={()=>removeItem(idx)} style={{ width:36, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                  </button>
-                )}
+                {/* Now */}
+                <div>
+                  <div style={{ position:"relative" }}>
+                    <input value={items[0]?.p || ""} onChange={e=>updateItem(0,"p",e.target.value.replace(/[^0-9.]/g,""))} placeholder="0" inputMode="decimal" style={{ width:"100%", padding:"11px 40px 11px 13px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight:700, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.gold}/>
+                    <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+                  </div>
+                  <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.gold, marginTop:4 }}>Now</div>
+                </div>
               </div>
-            ))}
-          </div>
+
+              {/* Savings pill (auto) */}
+              {savings > 0 && (
+                <div style={{ marginTop:10, display:"inline-flex", alignItems:"center", gap:6, padding:"7px 13px", background:`${c.positive}24`, border:`1px solid ${c.positive}55`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:800, color:c.positive }}>
+                  <span style={{ fontSize:13, fontWeight:900 }}>↓</span>
+                  Save {savings.toFixed(0)} QAR · {savePct}% off
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ position:"relative" }}>
+              <input value={items[0]?.p || ""} onChange={e=>updateItem(0,"p",e.target.value.replace(/[^0-9.]/g,""))} placeholder="How much is it?" inputMode="decimal" style={{ width:"100%", padding:"13px 50px 13px 14px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:12, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:15, fontWeight:700, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.gold}/>
+              <span style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:600, color:c.sub }}>QAR</span>
+            </div>
+          )}
         </div>
 
-        {/* Submit */}
-        <div style={{ padding:"12px 16px 24px", position:"sticky", bottom:0, background:`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 30%)` }}>
-          <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"15px 18px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:14, fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 8px 24px ${c.gold}33` : "none", display:"flex", alignItems:"center", justifyContent:"space-between", transition:"all 0.18s" }}>
+        {/* Submit — large, centered, energy chip inline */}
+        <div style={{ padding:"14px 16px 28px", position:"sticky", bottom:0, background:`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 30%)` }}>
+          <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"18px 20px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:16, fontFamily:"'DM Sans',sans-serif", fontWeight:800, fontSize:17, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 10px 28px ${c.gold}55` : "none", display:"flex", alignItems:"center", justifyContent:"center", gap:10, transition:"all 0.18s" }}>
             <span>Share find</span>
-            {ready && <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", background:"rgba(0,0,0,0.25)", borderRadius:5, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:800 }}>+3◆</span>}
+            <span style={{ display:"inline-flex", alignItems:"center", padding:"4px 9px", background: ready ? "rgba(0,0,0,0.25)" : c.muted, borderRadius:6, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:800, color: ready ? c.btnText : c.sub, letterSpacing:"0.04em" }}>+3◆</span>
           </button>
         </div>
       </div>
@@ -3816,10 +4142,11 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
             </div>
           ) : (
             <div style={{ padding:"0 16px" }}>
-              {myDeals.slice(0, 20).map(d => {
+              {myDeals.slice(0, 20).map((d, idx) => {
                 const hydrated = { ...d, user: d.user || user, ups: d.ups || 0, downs: d.downs || 0, claims: d.claims || 0, commentCount: d.commentCount || 0 };
+                const postNum = myDeals.length - idx;
                 return (
-                  <DealCard key={d.id} deal={hydrated} c={c} theme={theme} claimed={true} onClaim={()=>{}} vote={null} onVote={()=>{}} bookmarked={false} onBookmark={()=>{}} onUserTap={()=>{}} onLocationTap={()=>{}} onOpenPost={onOpenPost || (()=>{})} limitReached={false} isOwn={isOwn}/>
+                  <DealCard key={d.id} deal={hydrated} c={c} theme={theme} claimed={true} onClaim={()=>{}} vote={null} onVote={()=>{}} bookmarked={false} onBookmark={()=>{}} onUserTap={()=>{}} onLocationTap={()=>{}} onOpenPost={onOpenPost || (()=>{})} limitReached={false} isOwn={isOwn} displayMode="profile" postNumber={postNum}/>
                 );
               })}
             </div>
@@ -5648,9 +5975,21 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
 
       <div style={{ flex:1, overflowY:"auto", paddingBottom:12 }}>
         {(() => {
+          // Pillar communities — always shown in Joined section.
+          // Dev account can edit these in a future update.
+          const PILLAR_COMMUNITIES = [
+            { id:"pillar-foodies-doha",    name:"Foodies Doha",          emoji:"🍔", description:"Where the best bites in town are",          color:"#E8A03C", memberCount:1247, freshToday:8,  _pillar:true },
+            { id:"pillar-tech-tips-qatar", name:"Tech Tips Qatar",       emoji:"📱", description:"Tech deals & where to find them",            color:"#6B95C9", memberCount:643,  freshToday:3,  _pillar:true },
+            { id:"pillar-pearl-insiders",  name:"The Pearl Insiders",    emoji:"🏝️", description:"Pearl-Qatar shopping, eats & living tips",   color:"#B16A8E", memberCount:412,  freshToday:0,  _pillar:true },
+            { id:"pillar-grocery-hunters", name:"Weekly Grocery Hunters",emoji:"🛒", description:"Best weekly grocery deals across Doha",      color:"#88B07C", memberCount:887,  freshToday:14, _pillar:true },
+            { id:"pillar-flowers-gifts",   name:"Flowers & Gifts QA",    emoji:"🌷", description:"Florists, gifts & seasonal occasions",       color:"#D497A6", memberCount:94,   freshToday:2,  _pillar:true },
+            { id:"pillar-pharmacy-watch",  name:"Pharmacy Watch QA",     emoji:"💊", description:"Affordable medication & pharmacy tips",      color:"#6FA8A8", memberCount:156,  freshToday:0,  _pillar:true },
+          ];
           const all = communities || [];
-          const joinedList = all.filter(co => myCommunities.has(co.id));
-          const discoverList = all.filter(co => !myCommunities.has(co.id)).slice(0, 6);
+          const pillarIds = new Set(PILLAR_COMMUNITIES.map(p => p.id));
+          const realJoined = all.filter(co => myCommunities.has(co.id) && !pillarIds.has(co.id));
+          const joinedList = [...PILLAR_COMMUNITIES, ...realJoined];
+          const discoverList = all.filter(co => !myCommunities.has(co.id) && !pillarIds.has(co.id)).slice(0, 6);
           const matchesSearch = (co) => {
             if (!search.trim()) return true;
             const q = search.toLowerCase().trim();
@@ -5679,15 +6018,26 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
                     const role = memberInfo?.role;
                     const memberCount = co.memberCount || 0;
                     const roomCol = co.color || c.gold;
+                    const freshToday = co.freshToday || 0;
                     return (
                       <button key={co.id} onClick={()=>onOpenCommunity && onOpenCommunity(co.id)} style={{ display:"grid", gridTemplateColumns:"44px 1fr auto", gap:10, padding:"11px 12px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, alignItems:"center", position:"relative", textAlign:"left", cursor:"pointer" }}>
                         <div style={{ width:44, height:44, borderRadius:11, background:`linear-gradient(135deg, ${roomCol}, ${c.accent})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, position:"relative", flexShrink:0 }}>
                           {co.emoji || co.name?.[0] || "#"}
+                          {freshToday > 0 && (
+                            <div style={{ position:"absolute", bottom:-3, right:-3, width:14, height:14, background:c.gold, borderRadius:"50%", border:`2.5px solid ${c.surface}` }}/>
+                          )}
                         </div>
                         <div style={{ minWidth:0 }}>
-                          <div style={{ fontWeight:600, fontSize:14, letterSpacing:"-0.015em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{co.name}</div>
+                          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                            <span style={{ fontWeight:600, fontSize:14, letterSpacing:"-0.015em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{co.name}</span>
+                            {co._pillar && (
+                              <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, fontWeight:800, letterSpacing:"0.14em", color:c.gold, background:`${c.gold}22`, padding:"1.5px 5px", borderRadius:4 }}>★ PILLAR</span>
+                            )}
+                          </div>
                           <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:c.sub, marginTop:2, letterSpacing:"0.04em" }}>
-                            {memberCount} members{role==="owner" && <span style={{ color:c.gold, marginLeft:6, fontWeight:700 }}>· Owner</span>}
+                            {memberCount.toLocaleString()} members
+                            {freshToday > 0 && <span style={{ color:c.gold, marginLeft:6, fontWeight:700 }}>· {freshToday} fresh today</span>}
+                            {role==="owner" && <span style={{ color:c.gold, marginLeft:6, fontWeight:700 }}>· Owner</span>}
                           </div>
                           {co.description && (
                             <div style={{ fontSize:11.5, color:c.text2||c.sub, marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:"'DM Sans',sans-serif" }}>{co.description}</div>
