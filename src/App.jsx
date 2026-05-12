@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.8 · no yellow stripe · DEAL chip always shows on deal-type posts";
+const APP_VERSION = "v1.0.9 · ACTUAL FIX · postType + wasPrice now reach Firestore";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -7262,6 +7262,11 @@ export default function BKMApp() {
         place: postData.place,
         address: postData.address || postData.district,
         items: postData.items || [],
+        // Deal/Tip fields — these were getting stripped before, so every post
+        // ended up saved as a tip in Firestore regardless of what the user picked.
+        postType: postData.postType || "tip",
+        wasPrice: typeof postData.wasPrice === "number" ? postData.wasPrice : null,
+        phone:    postData.phone || null,
         img: null,
       }, {
         uid: fbAuth.currentUser.uid,
