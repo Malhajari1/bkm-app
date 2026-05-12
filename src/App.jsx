@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.7 · expand-post crash fix · deal/tip propagated to feed";
+const APP_VERSION = "v1.0.8 · no yellow stripe · DEAL chip always shows on deal-type posts";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2495,14 +2495,16 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   const extraCount = Math.max(0, items.length - 1);
   // Deal/Tip awareness — populated when PostDeal writes postType/wasPrice (v1.0+).
   // Older posts without these fields naturally fall through as "tip" mode.
-  const nowNum   = Number(firstItem.p) || 0;
+  const nowNum    = Number(firstItem.p) || 0;
   // Total across ALL items — used for multi-item deal math
-  const nowTotal = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
-  const wasNum   = Number(deal.wasPrice) || 0;
+  const nowTotal  = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
+  const wasNum    = Number(deal.wasPrice) || 0;
+  // True if the post was MARKED as a deal in compose, even if wasPrice didn't make it through
+  const isDealType = deal.postType === "deal";
   // isDeal compares wasNum against the TOTAL of items, not just the first
-  const isDeal   = deal.postType === "deal" && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal;
-  const savePct  = isDeal ? Math.round(((wasNum - nowTotal) / wasNum) * 100) : 0;
-  const saveAmt  = isDeal ? (wasNum - nowTotal) : 0;
+  const isDeal    = isDealType && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal;
+  const savePct   = isDeal ? Math.round(((wasNum - nowTotal) / wasNum) * 100) : 0;
+  const saveAmt   = isDeal ? (wasNum - nowTotal) : 0;
 
   return (
     <div style={{ position:"relative", marginBottom:10 }}>
@@ -2524,9 +2526,6 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
         onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
         onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}
       >
-        {/* Category color stripe — full left edge */}
-        <div style={{ position:"absolute", left:0, top:0, bottom:0, width:4, borderRadius:"18px 0 0 18px", background:catColor }}/>
-
         {/* Hot/Banner badge — top right corner */}
         {(postBanner || isOwn || isHot) && (
           <div style={{
@@ -2629,7 +2628,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               </span>
             )}
             {/* DEAL pill — visible even on locked cards so users know it's a deal-type post */}
-            {isDeal && (
+            {isDealType && (
               <span style={{
                 display:"inline-flex", alignItems:"center", gap:4,
                 padding: "2px 6px",
@@ -2643,7 +2642,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 letterSpacing: "0.14em",
               }}>
                 <span style={{ fontWeight:900, fontSize:9 }}>↓</span>
-                DEAL · {savePct}%
+                DEAL{savePct > 0 ? ` · ${savePct}%` : ""}
               </span>
             )}
             <span style={{
