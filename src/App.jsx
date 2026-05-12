@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.0 · The Redesign · new cards · rooms · compose";
+const APP_VERSION = "v1.0.3 · items section restored · add multiple items per post";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2498,7 +2498,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
   return (
     <div style={{ position:"relative", marginBottom:10 }}>
       <div
-        onClick={()=>onOpenPost && onOpenPost(deal)}
+        onClick={()=>{ if (effectiveClaimed) onOpenPost && onOpenPost(deal); }}
         style={{
           position:"relative",
           background: c.surface,
@@ -2508,10 +2508,10 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           display: "grid",
           gridTemplateColumns: "40px 1fr",
           gap: 11,
-          cursor: "pointer",
+          cursor: effectiveClaimed ? "pointer" : "default",
           transition: "border-color 0.18s, transform 0.12s",
         }}
-        onMouseDown={e=>e.currentTarget.style.transform="scale(0.997)"}
+        onMouseDown={e => { if (effectiveClaimed) e.currentTarget.style.transform="scale(0.997)"; }}
         onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
         onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}
       >
@@ -2582,7 +2582,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             </div>
           )}
 
-          {/* Title */}
+          {/* Title — full text, never clamped */}
           <div style={{
             fontWeight: 600,
             fontSize: 14,
@@ -2590,10 +2590,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             letterSpacing: "-0.018em",
             color: c.text,
             fontFamily:"'DM Sans',sans-serif",
-            display:"-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
+            wordBreak: "break-word",
           }}>
             {deal.subject || firstItem.n}
           </div>
@@ -2635,57 +2632,48 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 
           {/* PRICE STRIP — locked OR revealed */}
           {!effectiveClaimed ? (
-            // ─── LOCKED ───
-            <div style={{
-              marginTop: 3,
-              padding: "8px 10px",
-              background: c.bg,
-              borderRadius: 10,
-              display: "grid",
-              gridTemplateColumns: "1fr auto",
-              gap: 9,
-              alignItems: "center",
-              border: "1px solid transparent",
-            }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
-                <div style={{
-                  width:24, height:24,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  background: c.surface3 || c.muted,
-                  borderRadius: 7,
-                  color: c.gold,
-                  flexShrink: 0,
-                }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-                    <rect x="3" y="11" width="18" height="11" rx="2"/>
-                    <path d="M7 11V7a5 5 0 0110 0v4"/>
-                  </svg>
-                </div>
-                <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0 }}>
-                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.sub, fontWeight:600 }}>Price hidden</span>
-                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:600, color:c.text2 || c.sub }}>
-                    {items.length > 1 ? `${items.length} items · tap to reveal` : "Tap to reveal →"}
-                  </span>
-                </div>
+            // ─── LOCKED — whole strip is the reveal tap target ───
+            <button
+              onClick={(e)=>{ e.stopPropagation(); handleClaim(); }}
+              style={{
+                marginTop: 3,
+                padding: "8px 11px",
+                background: c.bg,
+                borderRadius: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                border: `1px dashed ${c.gold}66`,
+                width: "100%",
+                cursor: "pointer",
+                fontFamily: "'DM Sans',sans-serif",
+                textAlign: "left",
+                transition: "background 0.15s, border-color 0.15s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.background = c.surface2 || c.muted; e.currentTarget.style.borderColor = c.gold; }}
+              onMouseOut={e => { e.currentTarget.style.background = c.bg; e.currentTarget.style.borderColor = `${c.gold}66`; }}
+            >
+              <div style={{
+                width:24, height:24,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                background: c.surface3 || c.muted,
+                borderRadius: 7,
+                color: c.gold,
+                flexShrink: 0,
+              }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/>
+                  <path d="M7 11V7a5 5 0 0110 0v4"/>
+                </svg>
               </div>
-              <button
-                onClick={(e)=>{ e.stopPropagation(); handleClaim(); }}
-                style={{
-                  display:"inline-flex", alignItems:"center", gap:4,
-                  padding:"6px 11px",
-                  background: c.gold,
-                  color: c.bg,
-                  border:"none",
-                  borderRadius: 8,
-                  fontFamily:"'DM Sans',sans-serif",
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  whiteSpace:"nowrap",
-                  cursor:"pointer",
-                }}>
-                Open <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, opacity:0.7, fontWeight:700 }}>1◆</span>
-              </button>
-            </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0, flex:1 }}>
+                <span style={{ fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.sub, fontWeight:600 }}>Price hidden</span>
+                <span style={{ fontSize:12, fontWeight:600, color:c.text2 || c.sub }}>
+                  Tap to reveal {items.length > 1 ? `· ${items.length} items` : ""}
+                </span>
+              </div>
+              <span style={{ flexShrink:0, fontSize:10.5, fontWeight:800, color:c.gold, letterSpacing:"0.04em" }}>1◆</span>
+            </button>
           ) : (
             // ─── REVEALED ───
             <div style={{
@@ -3464,7 +3452,6 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             <div style={{ display:"flex", alignItems:"center", gap:6, background:c.muted, border:`1px solid ${c.border}`, borderRadius:14, padding:"5px 10px 5px 8px", cursor:"default" }} title={energy < MAX_ENERGY ? `Refills 1 every 2h · Next in ${getTimeToNextRefill()||"soon"}` : "Energy full"}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill={energy>0?c.accent:c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
               <span style={{ fontSize:13, fontWeight:800, color:energy>0?c.text:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{energy}</span>
-              <span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>/ {MAX_ENERGY}</span>
             </div>
           </div>
         </div>
@@ -3671,23 +3658,22 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
   const updateItem = (i,f,v) => setItems(x=>x.map((it,idx)=>idx===i?{...it,[f]:v}:it));
   const removeItem = (i) => setItems(x=>x.filter((_,idx)=>idx!==i));
 
-  // Auto-mirror the subject into the first item's name so user only types it once.
-  // Auto-derive "Save X / X% off" when both was + now are present in deal mode.
-  const nowPrice = Number(items[0]?.p) || 0;
-  const wasNum   = Number(wasPrice) || 0;
-  const savings  = (postType === "deal" && wasNum > 0 && nowPrice > 0 && wasNum > nowPrice) ? (wasNum - nowPrice) : 0;
-  const savePct  = (savings > 0) ? Math.round((savings / wasNum) * 100) : 0;
+  // Auto-derive totals + savings from the items list.
+  // Each item carries its own name + price. The first row defaults to a sensible starting state.
+  const validItems = items.filter(it => it.n && it.p);
+  const nowTotal   = validItems.reduce((sum, it) => sum + (Number(it.p) || 0), 0);
+  const wasNum     = Number(wasPrice) || 0;
+  const savings    = (postType === "deal" && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal) ? (wasNum - nowTotal) : 0;
+  const savePct    = (savings > 0) ? Math.round((savings / wasNum) * 100) : 0;
 
-  const ready = subject && place && district && cat && platform && nowPrice > 0
-    && (postType !== "deal" || (wasNum > 0 && wasNum > nowPrice));
+  const ready = subject && place && district && cat && platform && validItems.length > 0
+    && (postType !== "deal" || (wasNum > 0 && wasNum > nowTotal));
 
   const handleSubmit = () => {
     if (!ready) return;
-    const firstItem = { n: subject, p: nowPrice };
-    const extraItems = items.slice(1).filter(i=>i.n&&i.p);
     const post = {
       subject, place, district, cat, platform,
-      items: [firstItem, ...extraItems],
+      items: validItems.map(it => ({ n: it.n, p: Number(it.p) || 0 })),
       address: district,
       postType,                                              // "deal" | "tip"
       wasPrice: postType === "deal" ? wasNum : null,         // null on tips for clarity
@@ -3861,56 +3847,105 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
           </div>
         </div>
 
-        {/* Price — type-aware: deal=was/now, tip=single */}
+        {/* Items — list of {name, price} rows */}
         <div style={{ padding:"0 16px 14px" }}>
           <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
             <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
-              {postType === "deal" ? "Was / now price" : "Price"} <span style={{ color:c.gold }}>·</span>
+              {validItems.length > 1 ? "Items" : "Item"} + price <span style={{ color:c.gold }}>·</span>
             </span>
+            <button
+              onClick={addItem}
+              type="button"
+              style={{ background:"none", border:"none", cursor:"pointer", color:c.gold, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, letterSpacing:"-0.005em" }}
+            >
+              + Add item
+            </button>
           </div>
 
-          {postType === "deal" ? (
-            <>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
-                {/* Was */}
-                <div>
-                  <div style={{ position:"relative" }}>
-                    <input value={wasPrice} onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))} placeholder="0" inputMode="decimal" style={{ width:"100%", padding:"11px 40px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight:600, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.border}/>
-                    <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
-                  </div>
-                  <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.sub, marginTop:4 }}>Was</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {items.map((item, idx) => (
+              <div key={idx} style={{ display:"grid", gridTemplateColumns: items.length > 1 ? "1fr 96px 32px" : "1fr 96px", gap:5, alignItems:"center" }}>
+                <input
+                  value={item.n}
+                  onChange={e=>updateItem(idx, "n", e.target.value)}
+                  placeholder={idx === 0 ? "Item name (e.g. Chicken kabsa)" : "Item name"}
+                  style={{ padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
+                  onFocus={e=>e.target.style.borderColor=c.gold}
+                  onBlur={e=>e.target.style.borderColor=c.border}
+                />
+                <div style={{ position:"relative" }}>
+                  <input
+                    value={item.p}
+                    onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
+                    placeholder="0"
+                    inputMode="decimal"
+                    style={{ width:"100%", padding:"11px 38px 11px 13px", background:c.surface, border:`1.5px solid ${(idx===0&&postType==="tip")||postType==="deal" && idx===0 ? c.gold : c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
+                    onFocus={e=>e.target.style.borderColor=c.gold}
+                    onBlur={e=>e.target.style.borderColor=idx===0?c.gold:c.border}
+                  />
+                  <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
                 </div>
-                {/* Now */}
-                <div>
-                  <div style={{ position:"relative" }}>
-                    <input value={items[0]?.p || ""} onChange={e=>updateItem(0,"p",e.target.value.replace(/[^0-9.]/g,""))} placeholder="0" inputMode="decimal" style={{ width:"100%", padding:"11px 40px 11px 13px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight:700, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.gold}/>
-                    <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
-                  </div>
-                  <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.gold, marginTop:4 }}>Now</div>
-                </div>
+                {items.length > 1 && (
+                  <button
+                    onClick={()=>removeItem(idx)}
+                    type="button"
+                    aria-label="Remove item"
+                    style={{ width:32, height:36, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                )}
               </div>
+            ))}
+          </div>
 
-              {/* Savings pill (auto) */}
-              {savings > 0 && (
-                <div style={{ marginTop:10, display:"inline-flex", alignItems:"center", gap:6, padding:"7px 13px", background:`${c.positive}24`, border:`1px solid ${c.positive}55`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:800, color:c.positive }}>
-                  <span style={{ fontSize:13, fontWeight:900 }}>↓</span>
-                  Save {savings.toFixed(0)} QAR · {savePct}% off
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ position:"relative" }}>
-              <input value={items[0]?.p || ""} onChange={e=>updateItem(0,"p",e.target.value.replace(/[^0-9.]/g,""))} placeholder="How much is it?" inputMode="decimal" style={{ width:"100%", padding:"13px 50px 13px 14px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:12, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:15, fontWeight:700, outline:"none" }} onFocus={e=>e.target.style.borderColor=c.gold} onBlur={e=>e.target.style.borderColor=c.gold}/>
-              <span style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:600, color:c.sub }}>QAR</span>
+          {/* Multi-item live total */}
+          {validItems.length > 1 && (
+            <div style={{ marginTop:10, padding:"7px 12px", background:c.surface2 || c.muted, border:`1px solid ${c.border}`, borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif" }}>
+              <span style={{ fontSize:10, letterSpacing:"0.16em", textTransform:"uppercase", color:c.sub, fontWeight:700 }}>Total</span>
+              <span style={{ fontSize:14, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>
+                {nowTotal.toFixed(0)}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+              </span>
             </div>
           )}
         </div>
 
-        {/* Submit — large, centered, energy chip inline */}
-        <div style={{ padding:"14px 16px 28px", position:"sticky", bottom:0, background:`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 30%)` }}>
-          <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"18px 20px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:16, fontFamily:"'DM Sans',sans-serif", fontWeight:800, fontSize:17, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 10px 28px ${c.gold}55` : "none", display:"flex", alignItems:"center", justifyContent:"center", gap:10, transition:"all 0.18s" }}>
+        {/* Was-total (Deal mode only) — applies to all items combined */}
+        {postType === "deal" && (
+          <div style={{ padding:"0 16px 14px" }}>
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
+              <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
+                Was price{validItems.length > 1 ? " · total" : ""} <span style={{ color:c.gold }}>·</span>
+              </span>
+            </div>
+            <div style={{ position:"relative", maxWidth:200 }}>
+              <input
+                value={wasPrice}
+                onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
+                placeholder="What was the price before?"
+                inputMode="decimal"
+                style={{ width:"100%", padding:"11px 40px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:600, outline:"none" }}
+                onFocus={e=>e.target.style.borderColor=c.gold}
+                onBlur={e=>e.target.style.borderColor=c.border}
+              />
+              <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+            </div>
+
+            {/* Auto savings pill */}
+            {savings > 0 && (
+              <div style={{ marginTop:10, display:"inline-flex", alignItems:"center", gap:6, padding:"7px 13px", background:`${c.positive}24`, border:`1px solid ${c.positive}55`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:800, color:c.positive }}>
+                <span style={{ fontSize:13, fontWeight:900 }}>↓</span>
+                Save {savings.toFixed(0)} QAR · {savePct}% off
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Submit */}
+        <div style={{ padding:"12px 16px 24px", position:"sticky", bottom:0, background:`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 30%)` }}>
+          <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"15px 18px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:14, fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 8px 24px ${c.gold}33` : "none", display:"flex", alignItems:"center", justifyContent:"space-between", transition:"all 0.18s" }}>
             <span>Share find</span>
-            <span style={{ display:"inline-flex", alignItems:"center", padding:"4px 9px", background: ready ? "rgba(0,0,0,0.25)" : c.muted, borderRadius:6, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:800, color: ready ? c.btnText : c.sub, letterSpacing:"0.04em" }}>+3◆</span>
+            {ready && <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", background:"rgba(0,0,0,0.25)", borderRadius:5, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:800 }}>+3◆</span>}
           </button>
         </div>
       </div>
@@ -4065,6 +4100,38 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
             );
           })()}
         </div>
+
+        {/* Streak chip — own profile only. Shows even at 0 so users know the feature exists. */}
+        {isOwn && (
+          <div style={{ padding:"0 16px 10px", display:"flex", justifyContent:"center", ...a(0.09) }}>
+            <div style={{
+              display:"inline-flex",
+              alignItems:"center",
+              gap:7,
+              padding:"6px 12px",
+              background: SESSION.streak > 0 ? `linear-gradient(135deg, ${c.gold}1A, ${c.hot}14)` : c.surface,
+              border: `1px solid ${SESSION.streak > 0 ? c.gold+"55" : c.border}`,
+              borderRadius: 100,
+              fontFamily: "'DM Sans',sans-serif",
+            }}>
+              <svg width="13" height="14" viewBox="0 0 24 24" fill={SESSION.streak > 0 ? "#FF6B35" : c.sub}>
+                <path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/>
+              </svg>
+              {SESSION.streak > 0 ? (
+                <span style={{ fontSize:12, fontWeight:700, color:c.text, letterSpacing:"-0.01em" }}>
+                  {SESSION.streak}-day streak
+                  {SESSION.bestStreak > SESSION.streak && (
+                    <span style={{ color:c.sub, fontWeight:500, marginLeft:5 }}>· best {SESSION.bestStreak}</span>
+                  )}
+                </span>
+              ) : (
+                <span style={{ fontSize:12, fontWeight:600, color:c.text2 || c.sub, letterSpacing:"-0.005em" }}>
+                  Reveal a find to start your streak
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Stats grid */}
         <div style={{ margin:"12px 14px 16px", padding:"14px 6px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:4, ...a(0.10) }}>
@@ -5987,9 +6054,12 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
           ];
           const all = communities || [];
           const pillarIds = new Set(PILLAR_COMMUNITIES.map(p => p.id));
-          const realJoined = all.filter(co => myCommunities.has(co.id) && !pillarIds.has(co.id));
-          const joinedList = [...PILLAR_COMMUNITIES, ...realJoined];
-          const discoverList = all.filter(co => !myCommunities.has(co.id) && !pillarIds.has(co.id)).slice(0, 6);
+          // Joined = ONLY real Firestore communities the user actually joined.
+          // Pillars are display-only simulations and appear in Discover.
+          const joinedList = all.filter(co => myCommunities.has(co.id) && !pillarIds.has(co.id));
+          const realDiscover = all.filter(co => !myCommunities.has(co.id) && !pillarIds.has(co.id)).slice(0, 6);
+          // Pillars at the top of Discover, then real Firestore communities below.
+          const discoverList = [...PILLAR_COMMUNITIES, ...realDiscover];
           const matchesSearch = (co) => {
             if (!search.trim()) return true;
             const q = search.toLowerCase().trim();
@@ -6060,14 +6130,26 @@ function CommunitiesTab({ theme, lang, onOpenCommunity, onCreateCommunity }) {
                     {discoverFiltered.map(co => {
                       const roomCol = co.color || c.gold;
                       const memberCount = co.memberCount || 0;
+                      const freshToday = co.freshToday || 0;
                       return (
                         <div key={co.id} style={{ padding:12, background:c.surface, border:`1px solid ${c.border}`, borderRadius:13, display:"flex", alignItems:"center", gap:11 }}>
-                          <div style={{ width:40, height:40, borderRadius:10, background:`linear-gradient(135deg, ${roomCol}, ${c.accent})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>
+                          <div style={{ width:40, height:40, borderRadius:10, background:`linear-gradient(135deg, ${roomCol}, ${c.accent})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0, position:"relative" }}>
                             {co.emoji || co.name?.[0] || "#"}
+                            {freshToday > 0 && (
+                              <div style={{ position:"absolute", bottom:-3, right:-3, width:12, height:12, background:c.gold, borderRadius:"50%", border:`2px solid ${c.surface}` }}/>
+                            )}
                           </div>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontWeight:600, fontSize:13, letterSpacing:"-0.015em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{co.name}</div>
-                            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:c.sub, marginTop:1 }}>{memberCount} members</div>
+                            <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                              <span style={{ fontWeight:600, fontSize:13, letterSpacing:"-0.015em", color:c.text, fontFamily:"'DM Sans',sans-serif" }}>{co.name}</span>
+                              {co._pillar && (
+                                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, fontWeight:800, letterSpacing:"0.14em", color:c.gold, background:`${c.gold}22`, padding:"1.5px 5px", borderRadius:4 }}>★ PILLAR</span>
+                              )}
+                            </div>
+                            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:c.sub, marginTop:1 }}>
+                              {memberCount.toLocaleString()} members
+                              {freshToday > 0 && <span style={{ color:c.gold, marginLeft:5, fontWeight:600 }}>· {freshToday} fresh today</span>}
+                            </div>
                           </div>
                           <button onClick={()=>onOpenCommunity && onOpenCommunity(co.id)} style={{ padding:"6px 14px", background:c.surface3||c.muted, border:`1px solid ${c.border}`, borderRadius:100, fontSize:11, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
                             Open
