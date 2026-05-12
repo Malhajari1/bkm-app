@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.3 · items section restored · add multiple items per post";
+const APP_VERSION = "v1.0.5 · streak counts daily logins · reveal pop+sweep animation";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -719,10 +719,13 @@ const getTimeToNextRefill = () => {
 };
 
 // === Streak helpers ===
-const updateStreakOnReveal = () => {
+// Counts any day the user is active (logs in OR reveals). One bump per day.
+// Field name `lastRevealDate` is kept for backward compat with existing user docs;
+// semantically it represents "last active day" now.
+const updateStreakOnActivity = () => {
   const today = todayKey();
   const last  = SESSION.lastRevealDate;
-  if (last === today) return; // already counted today
+  if (last === today) return false; // already counted today
   if (!last) { SESSION.streak = 1; }
   else {
     const lastDate  = new Date(last);
@@ -734,7 +737,10 @@ const updateStreakOnReveal = () => {
   SESSION.lastRevealDate = today;
   if (SESSION.streak > SESSION.bestStreak) SESSION.bestStreak = SESSION.streak;
   persistSession();
+  return true; // streak was bumped this call
 };
+// Back-compat alias — old code paths can keep calling the previous name.
+const updateStreakOnReveal = updateStreakOnActivity;
 
 // === Persistence — keep streak / energy / sound across refreshes ===
 const PERSIST_KEY = "bkm_session_v1";
@@ -2450,9 +2456,9 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
     if (!limitReached) {
       setPriceAnim(true);
       setRevealAnim(true);
-      // Run animation for ~1.2s total (gold sweep + digit pop sequence + glow)
+      // Sweep + pop sequence takes ~900ms; price digit pop runs ~1.2s
       setTimeout(() => setPriceAnim(false), 1200);
-      setTimeout(() => setRevealAnim(false), 500);
+      setTimeout(() => setRevealAnim(false), 900);
     }
   };
 
@@ -2637,21 +2643,22 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               onClick={(e)=>{ e.stopPropagation(); handleClaim(); }}
               style={{
                 marginTop: 3,
-                padding: "8px 11px",
+                padding: "8px 10px",
                 background: c.bg,
                 borderRadius: 10,
-                display: "flex",
+                display: "grid",
+                gridTemplateColumns: "auto 1fr auto",
                 alignItems: "center",
-                gap: 10,
-                border: `1px dashed ${c.gold}66`,
+                gap: 9,
+                border: `1px solid ${c.border}`,
                 width: "100%",
                 cursor: "pointer",
                 fontFamily: "'DM Sans',sans-serif",
                 textAlign: "left",
                 transition: "background 0.15s, border-color 0.15s",
               }}
-              onMouseOver={e => { e.currentTarget.style.background = c.surface2 || c.muted; e.currentTarget.style.borderColor = c.gold; }}
-              onMouseOut={e => { e.currentTarget.style.background = c.bg; e.currentTarget.style.borderColor = `${c.gold}66`; }}
+              onMouseOver={e => { e.currentTarget.style.borderColor = `${c.gold}66`; }}
+              onMouseOut={e => { e.currentTarget.style.borderColor = c.border; }}
             >
               <div style={{
                 width:24, height:24,
@@ -2666,10 +2673,10 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   <path d="M7 11V7a5 5 0 0110 0v4"/>
                 </svg>
               </div>
-              <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0, flex:1 }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0 }}>
                 <span style={{ fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.sub, fontWeight:600 }}>Price hidden</span>
                 <span style={{ fontSize:12, fontWeight:600, color:c.text2 || c.sub }}>
-                  Tap to reveal {items.length > 1 ? `· ${items.length} items` : ""}
+                  Tap to reveal {items.length > 1 ? `· ${items.length} items` : "→"}
                 </span>
               </div>
               <span style={{ flexShrink:0, fontSize:10.5, fontWeight:800, color:c.gold, letterSpacing:"0.04em" }}>1◆</span>
@@ -2686,8 +2693,32 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               gap: 9,
               alignItems: "flex-start",
               border: `1px solid ${c.gold}38`,
+              position: "relative",
+              overflow: "hidden",
+              animation: revealAnim ? "priceReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both" : "none",
+              boxShadow: revealAnim ? `0 0 0 2px ${c.gold}55, 0 8px 24px ${c.gold}33` : "none",
+              transition: "box-shadow 0.4s ease",
             }}>
-              <div style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0 }}>
+              {/* Gold sweep overlay — only during reveal */}
+              {revealAnim && (
+                <div style={{
+                  position: "absolute",
+                  top: 0, left: 0, right: 0, bottom: 0,
+                  pointerEvents: "none",
+                  zIndex: 1,
+                  overflow: "hidden",
+                  borderRadius: 10,
+                }}>
+                  <div style={{
+                    position: "absolute",
+                    top: 0, bottom: 0,
+                    width: "40%",
+                    background: `linear-gradient(90deg, transparent, ${c.gold}66, transparent)`,
+                    animation: "goldSweep 0.85s cubic-bezier(0.4, 0, 0.2, 1) both",
+                  }}/>
+                </div>
+              )}
+              <div style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0, position:"relative", zIndex:2 }}>
                 <div style={{
                   width:24, height:24,
                   display:"flex", alignItems:"center", justifyContent:"center",
@@ -2712,37 +2743,47 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   </div>
 
                   {items.length <= 1 ? (
-                    // ─── Single item: name + price (+ was/save for deals) ───
+                    // ─── Single item: name + price ALL on the same line ───
                     <>
                       <div style={{
-                        fontFamily:"'DM Sans',sans-serif",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: c.text,
-                        lineHeight: 1.3,
-                        letterSpacing: "-0.015em",
-                        marginTop: 1,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        display: "flex",
+                        alignItems: "baseline",
+                        gap: 7,
+                        flexWrap: "wrap",
+                        marginTop: 2,
+                        fontFamily: "'DM Sans',sans-serif",
                       }}>
-                        {firstItem.n || deal.subject || "Item"}
-                      </div>
-                      <div style={{ display:"inline-flex", alignItems:"baseline", gap:6, flexWrap:"wrap", marginTop:2 }}>
-                        <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:800, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
-                          {nowNum > 0 ? nowNum : "—"}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                        <span style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: c.text,
+                          letterSpacing: "-0.015em",
+                          wordBreak: "break-word",
+                        }}>
+                          {firstItem.n || deal.subject || "Item"}
+                        </span>
+                        <span style={{ color: c.sub, fontSize: 11 }}>·</span>
+                        <span style={{
+                          fontSize: 17,
+                          fontWeight: 800,
+                          color: c.text,
+                          letterSpacing: "-0.025em",
+                          lineHeight: 1,
+                        }}>
+                          {nowNum > 0 ? nowNum : "—"}
+                          <span style={{ fontSize: 10, color: c.sub, marginLeft: 3, fontWeight: 500 }}>QAR</span>
                         </span>
                         {isDeal && (
                           <>
-                            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10.5, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {wasNum}</span>
-                            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"2px 6px", borderRadius:4, letterSpacing:"0.04em" }}>
+                            <span style={{ fontSize: 10.5, color: c.sub, textDecoration: "line-through", fontWeight: 500 }}>was {wasNum}</span>
+                            <span style={{ fontSize: 9, fontWeight: 800, color: c.positive, background: `${c.positive}24`, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
                               −{savePct}%
                             </span>
                           </>
                         )}
                       </div>
                       {isDeal && saveAmt > 0 && (
-                        <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.positive, marginTop:1, fontWeight:500 }}>
+                        <div style={{ fontFamily: "'Newsreader',Georgia,serif", fontStyle: "italic", fontSize: 10.5, color: c.positive, marginTop: 2, fontWeight: 500 }}>
                           Saves {saveAmt.toFixed(0)} QAR
                         </div>
                       )}
@@ -2752,7 +2793,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                     <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:2 }}>
                       {items.slice(0, 4).map((it, i) => (
                         <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:8, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, alignItems:"baseline" }}>
-                          <span style={{ color:c.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1, fontWeight:500 }}>
+                          <span style={{ color:c.text, flex:1, fontWeight:500, wordBreak:"break-word" }}>
                             <span style={{ color:c.sub, marginRight:5 }}>·</span>{it.n || `Item ${i+1}`}
                           </span>
                           <span style={{ color:c.text, fontWeight:700, flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>
@@ -2780,7 +2821,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 </div>
               </div>
               {/* Vote thumbs (inline after reveal) */}
-              <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+              <div style={{ display:"flex", gap:4, flexShrink:0, position:"relative", zIndex:2 }}>
                 <button
                   onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("up"); }}
                   disabled={!canVote}
@@ -2817,8 +2858,8 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
             </div>
           )}
 
-          {/* Helpful ratio bar */}
-          <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:3 }}>
+          {/* Helpful ratio bar + inline action buttons (bookmark + more) */}
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:6 }}>
             <div style={{ flex:1, height:3.5, background: c.surface3 || c.muted, borderRadius:2, overflow:"hidden" }}>
               <div style={{
                 height:"100%",
@@ -2828,39 +2869,29 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 transition: "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
               }}/>
             </div>
-            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9.5, color:c.sub, fontWeight:500 }}>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9.5, color:c.sub, fontWeight:500, whiteSpace:"nowrap" }}>
               <span style={{ color:c.text2 || c.text, fontWeight:600 }}>{helpfulRatio}%</span>
               {" · "}
-              {upCount}/{Math.max(1, totalVotes)} helpful
+              {upCount}/{Math.max(1, totalVotes)}
               {commentCount > 0 && <span> · 💬 {commentCount}</span>}
             </span>
-          </div>
-
-          {/* Top-right actions: bookmark + more menu */}
-          <div style={{
-            position: "absolute",
-            top: (postBanner || isOwn || isHot) ? 36 : 8,
-            right: 8,
-            display: "flex",
-            gap: 2,
-            zIndex: 3,
-          }}>
             {!isOwn && (
               <button
                 onClick={(e)=>{ e.stopPropagation(); handleBookmark(); }}
                 aria-label="Bookmark"
                 style={{
-                  width:28, height:28,
-                  background:"transparent",
-                  border:"none",
+                  width:30, height:30,
+                  background: bookmarked ? `${c.gold}20` : (c.surface3 || c.muted),
+                  border: `1px solid ${bookmarked ? c.gold+"55" : c.border}`,
                   cursor:"pointer",
-                  color: bookmarked ? c.gold : c.sub,
-                  transform: bmarkAnim ? "scale(1.3)" : "scale(1)",
+                  color: bookmarked ? c.gold : (c.text2 || c.sub),
+                  transform: bmarkAnim ? "scale(1.2)" : "scale(1)",
                   transition:"all 0.2s cubic-bezier(0.34, 1.5, 0.64, 1)",
                   display:"flex", alignItems:"center", justifyContent:"center",
-                  borderRadius: 6,
+                  borderRadius: 8,
+                  flexShrink: 0,
                 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
                   <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
                 </svg>
               </button>
@@ -2869,14 +2900,15 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               onClick={(e)=>{ e.stopPropagation(); setShowMoreMenu(s=>!s); }}
               aria-label="More"
               style={{
-                width:28, height:28,
-                background: showMoreMenu ? (c.surface3 || c.muted) : "transparent",
-                border:"none",
+                width:30, height:30,
+                background: showMoreMenu ? c.surface3 : (c.surface3 || c.muted),
+                border: `1px solid ${c.border}`,
                 cursor:"pointer",
                 color: c.text2 || c.sub,
                 display:"flex", alignItems:"center", justifyContent:"center",
-                borderRadius: 6,
+                borderRadius: 8,
                 transition: "background 0.18s",
+                flexShrink: 0,
               }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
             </button>
@@ -2890,18 +2922,18 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 onClick={(e)=>{ e.stopPropagation(); setShowMoreMenu(false); }}
                 style={{ position:"fixed", inset:0, zIndex:60, background:"transparent" }}
               />
-              {/* Menu */}
+              {/* Menu — anchored above the action row at the bottom of the card */}
               <div
                 onClick={(e)=>e.stopPropagation()}
                 style={{
                   position:"absolute",
-                  top: (postBanner || isOwn || isHot) ? 68 : 40,
+                  bottom: 50,
                   right: 8,
                   minWidth: 180,
                   background: c.surface,
                   border: `1px solid ${c.border}`,
                   borderRadius: 12,
-                  boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+                  boxShadow: "0 -8px 32px rgba(0,0,0,0.35)",
                   zIndex: 61,
                   overflow: "hidden",
                   fontFamily: "'DM Sans',sans-serif",
@@ -3731,7 +3763,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
               <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:c.text2||c.sub, marginBottom:3 }}>
                 <span style={{ color:c.text, fontWeight:600 }}>@{getMe().username || "you"}</span> · just now
               </div>
-              <div style={{ fontWeight:600, fontSize:12, lineHeight:1.28, letterSpacing:"-0.015em", color:c.text, marginBottom:5, fontFamily:"'DM Sans',sans-serif", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>
+              <div style={{ fontWeight:600, fontSize:12, lineHeight:1.28, letterSpacing:"-0.015em", color:c.text, marginBottom:5, fontFamily:"'DM Sans',sans-serif", wordBreak:"break-word" }}>
                 {subject || "Your find title appears here"}
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:6, alignItems:"center", padding:"6px 8px", background:`linear-gradient(135deg, ${c.gold}1A, ${c.accent}0A)`, border:`1px solid ${c.gold}38`, borderRadius:8 }}>
@@ -6620,6 +6652,18 @@ export default function BKMApp() {
       SESSION.streak           = userDoc.streak || 0;
       SESSION.bestStreak       = userDoc.bestStreak || 0;
       SESSION.soundEnabled     = userDoc.soundEnabled !== false;
+
+      // Login bumps the streak (first time today). Same logic the reveal uses —
+      // idempotent across same-day reloads. Saves new streak to Firestore.
+      const streakBumpedToday = updateStreakOnActivity();
+      if (streakBumpedToday) {
+        fbUpdateUserDoc(user.uid, {
+          lastRevealDate: SESSION.lastRevealDate,
+          streak: SESSION.streak,
+          bestStreak: SESSION.bestStreak,
+        }).catch(()=>{});
+      }
+
       CURRENT_USER = {
         id: user.uid,
         uid: user.uid,
