@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.0.6 · new expanded post · compose preview shows savings · DEAL chip on cards";
+const APP_VERSION = "v1.0.7 · expand-post crash fix · deal/tip propagated to feed";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -7131,6 +7131,10 @@ export default function BKMApp() {
         cat: d.cat, platform: d.platform, district: d.district, place: d.place,
         address: d.address || d.district, items: d.items || [],
         claims: d.claims || 0, ups: d.ups || 0, downs: d.downs || 0,
+        // Deal/tip awareness — fall through to "tip" semantics if missing on older posts
+        postType: d.postType || "tip",
+        wasPrice: typeof d.wasPrice === "number" ? d.wasPrice : null,
+        phone:    d.phone || null,
         verified: !!d.verified,
         submitted: formatRelativeTime(d.approvedAt || d.createdAt),
         time: formatRelativeTime(d.approvedAt || d.createdAt),
@@ -7152,6 +7156,9 @@ export default function BKMApp() {
         user: { id: p.userId, username: p.userUsername, av: p.userAvatar, founder: p.userFounder, rank: p.userRank || 0 },
         cat: p.cat, platform: p.platform, district: p.district, place: p.place,
         address: p.address || p.district, items: p.items || [],
+        postType: p.postType || "tip",
+        wasPrice: typeof p.wasPrice === "number" ? p.wasPrice : null,
+        phone:    p.phone || null,
         founderPost: !!p.userFounder,
         submitted: formatRelativeTime(p.createdAt),
         img: p.img || null,
@@ -7400,9 +7407,9 @@ export default function BKMApp() {
       onBack={pop}
       onPostHere={d=>{ pop(); setTab("post"); setPostPrefill(d); }}
       vote={userVotes[pushedScreen.data.id]}
-      onVote={handleVote}
+      onVote={(id, dir) => { if (fbAuth.currentUser) fbRecordVote(fbAuth.currentUser.uid, id, dir).catch(()=>{}); }}
       bookmarked={userBookmarks.has(pushedScreen.data.id)}
-      onBookmark={(id) => fbToggleBookmark(fbAuth.currentUser?.uid, id).catch(()=>{})}
+      onBookmark={(id) => { if (fbAuth.currentUser) fbToggleBookmark(fbAuth.currentUser.uid, id).catch(()=>{}); }}
       isAdmin={isAdmin}
       onReportPost={handleReportPost}
       onBlockUser={handleBlockUser}
