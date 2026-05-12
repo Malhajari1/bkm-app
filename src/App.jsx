@@ -1230,7 +1230,7 @@ function ColorAvatar({ user, size=38 }) {
 }
 
 // Avatar with rank ring + founder badge
-function Avatar({ user, size=38 }) {
+function Avatar({ user, size=38, showFounder=true }) {
   const isFounder = user?.founder;
   const ringBg = isFounder
     ? "linear-gradient(135deg,#1D6FEB,#56B0FF)"
@@ -1243,7 +1243,7 @@ function Avatar({ user, size=38 }) {
       <div style={{ width:size, height:size, borderRadius:"50%", background:col.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
         <span style={{ fontSize:size*0.42, fontWeight:800, color:col.fg, fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{init}</span>
       </div>
-      {isFounder && (
+      {isFounder && showFounder && (
         <div style={{ position:"absolute", bottom:-1, right:-1, width:Math.max(13,size*0.34), height:Math.max(13,size*0.34), borderRadius:"50%", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", border:"2px solid #181513", display:"flex", alignItems:"center", justifyContent:"center" }}>
           <svg width="7" height="7" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
         </div>
@@ -3689,6 +3689,11 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
               </button>
             )}
             {isOwn && (
+              <button onClick={onSettings} title="Settings" style={{ width:32, height:32, background:c.surface, border:`1px solid ${c.border}`, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:c.text2||c.text }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              </button>
+            )}
+            {isOwn && (
               <button onClick={()=>{ if (confirm("Sign out of BKM?")) onSignOut && onSignOut(); }} title="Sign out" style={{ width:32, height:32, background:c.surface, border:`1px solid ${c.border}`, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:"#EF4444" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               </button>
@@ -3699,7 +3704,7 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
         {/* Hero — big avatar with tier ring + founder pill */}
         <div style={{ padding:"18px 18px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:12, textAlign:"center", ...a(0.06) }}>
           <div style={{ position:"relative", width:96, height:96 }}>
-            <Avatar user={user} size={88}/>
+            <Avatar user={user} size={88} showFounder={false}/>
             {user.founder && (
               <div style={{ position:"absolute", bottom:-4, left:"50%", transform:"translateX(-50%)", padding:"3px 10px", background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:8.5, fontWeight:800, color:c.btnText, letterSpacing:"0.14em", textTransform:"uppercase", whiteSpace:"nowrap", boxShadow:`0 3px 12px ${c.gold}55` }}>
                 ★ Founder · Tier {user.rank}
@@ -3722,6 +3727,17 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
               {user.caption || user.name}
             </div>
           )}
+          {(() => {
+            // "Tipster since 'YY" — derived from createdAt (Firestore Timestamp) or fallback to current year
+            const dt = user.createdAt?.toDate?.() || (user.createdAt instanceof Date ? user.createdAt : null);
+            const year = dt && dt.getFullYear ? dt.getFullYear() : new Date().getFullYear();
+            const yy = String(year).slice(-2);
+            return (
+              <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:13, fontWeight:400, color:c.goldSoft||c.gold, marginTop:-4 }}>
+                Tipster since '{yy}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Stats grid */}
@@ -3749,10 +3765,24 @@ function Profile({ theme, lang, user:userProp, onBack, showBack=false, onSignOut
         <div style={{ padding:"0 16px 14px", display:"flex", gap:7, ...a(0.12) }}>
           {isOwn ? (
             <>
-              <button onClick={onSettings} style={{ flex:1, padding:"10px 0", background:c.text, color:c.bg, border:`1px solid ${c.text}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:12.5, fontWeight:700, letterSpacing:"-0.01em", cursor:"pointer" }}>
-                Settings
+              <button onClick={()=>{ /* Edit profile — feature coming soon */ }} style={{ flex:1, padding:"10px 0", background:c.text, color:c.bg, border:`1px solid ${c.text}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:12.5, fontWeight:700, letterSpacing:"-0.01em", cursor:"pointer" }}>
+                Edit profile
               </button>
-              <button style={{ flex:1, padding:"10px 0", background:c.surface, color:c.text, border:`1px solid ${c.border}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:12.5, fontWeight:600, letterSpacing:"-0.01em", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
+              <button onClick={()=>{
+                const url = (typeof window !== "undefined") ? window.location.href : "";
+                const shareData = {
+                  title: `@${user.username} on BKM`,
+                  text: `Check out @${user.username}'s finds on BKM`,
+                  url,
+                };
+                try {
+                  if (typeof navigator !== "undefined" && navigator.share) {
+                    navigator.share(shareData).catch(()=>{});
+                  } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(url).catch(()=>{});
+                  }
+                } catch (e) { /* swallow — non-fatal */ }
+              }} style={{ flex:1, padding:"10px 0", background:c.surface, color:c.text, border:`1px solid ${c.border}`, borderRadius:11, fontFamily:"'DM Sans',sans-serif", fontSize:12.5, fontWeight:600, letterSpacing:"-0.01em", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
                 Share
               </button>
