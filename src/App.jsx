@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.1 · header + rank panel + twitter tabs";
+const APP_VERSION = "v1.1.2 · category dropdown · breathing room";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3162,6 +3162,8 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   // v1.1.1 — rank panel open/closed + scroll-aware lift-up
   const [hudOpen, setHudOpen]               = useState(false);
   const [scrollCollapsed, setScrollCollapsed] = useState(false);
+  // v1.1.2 — category strip dropdown (defaults open / State B)
+  const [catsOpen, setCatsOpen]             = useState(true);
   const c = TH[theme];
 
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
@@ -3683,20 +3685,62 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
           );
         })()}
 
-        {/* Category filter */}
-        <div style={{ paddingBottom:16, overflowX:"auto", scrollbarWidth:"none" }}>
-          <div style={{ display:"flex", gap:8, paddingLeft:20, paddingRight:20 }}>
-            {[{key:"all",label:"All"},...CATS].map(cat=>{
-              const active=activeCat===cat.key;
-              return (
-                <button key={cat.key} onClick={()=>setActiveCat(cat.key)} style={{ flexShrink:0, display:"flex", alignItems:"center", gap:6, padding:"7px 14px", background:active?c.btnBg:c.pill, color:active?c.btnText:c.sub, border:`1px solid ${active?"transparent":c.pillBorder}`, borderRadius:20, fontSize:12, fontWeight:600, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s" }}>
-                  {cat.key!=="all"&&<CatIcon cat={cat.key} color={active?c.btnText:c.sub} size={13}/>}
-                  {cat.label}
+        {/* v1.1.2 — Category control row + collapsible strip.
+            Control row has 16px breathing room from the tabs hairline above.
+            Defaults to open (categories visible). Tap "Filter" chip to collapse. */}
+        {(() => {
+          const activeCatLabel = activeCat === "all" ? "All" : (CATS.find(cat => cat.key === activeCat)?.label || "All");
+          return (
+            <>
+              <div style={{ padding:"16px 20px 6px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
+                  <span style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontWeight:600, textTransform:"none", letterSpacing:0, color:c.text2||c.sub, fontSize:12.5 }}>Showing</span>
+                  <span style={{ color:c.text }}>{activeCatLabel}</span>
+                </div>
+                <button
+                  onClick={()=>{ sfx.tap(); setCatsOpen(o=>!o); }}
+                  aria-label={catsOpen ? "Hide categories" : "Show categories"}
+                  style={{
+                    display:"inline-flex", alignItems:"center", gap:5,
+                    background: catsOpen ? "rgba(224,163,62,0.10)" : c.surface||c.muted,
+                    border: `1px solid ${catsOpen ? "rgba(224,163,62,0.45)" : c.border}`,
+                    borderRadius:999, padding:"5px 11px 5px 12px",
+                    cursor:"pointer",
+                    color: catsOpen ? c.gold : (c.text2||c.sub),
+                    fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:700, letterSpacing:"-0.01em",
+                    transition:"background 160ms ease, border-color 160ms ease, color 160ms ease",
+                  }}>
+                  Filter
+                  <span style={{ display:"flex", alignItems:"center", justifyContent:"center", transform: catsOpen ? "rotate(180deg)" : "rotate(0deg)", transition:"transform 240ms cubic-bezier(.4,0,.2,1)" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
                 </button>
-              );
-            })}
-          </div>
-        </div>
+              </div>
+              <div style={{
+                overflow:"hidden",
+                maxHeight: catsOpen ? 70 : 0,
+                opacity: catsOpen ? 1 : 0,
+                paddingTop: catsOpen ? 4 : 0,
+                paddingBottom: catsOpen ? 14 : 0,
+                transition:"max-height 280ms cubic-bezier(.4,0,.2,1), opacity 220ms ease, padding 280ms ease",
+              }}>
+                <div style={{ overflowX:"auto", scrollbarWidth:"none" }}>
+                  <div style={{ display:"flex", gap:8, paddingLeft:20, paddingRight:20 }}>
+                    {[{key:"all",label:"All"},...CATS].map(cat=>{
+                      const active=activeCat===cat.key;
+                      return (
+                        <button key={cat.key} onClick={()=>setActiveCat(cat.key)} style={{ flexShrink:0, display:"flex", alignItems:"center", gap:6, padding:"7px 14px", background:active?c.btnBg:c.pill, color:active?c.btnText:c.sub, border:`1px solid ${active?"transparent":c.pillBorder}`, borderRadius:20, fontSize:12, fontWeight:600, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.2s" }}>
+                          {cat.key!=="all"&&<CatIcon cat={cat.key} color={active?c.btnText:c.sub} size={13}/>}
+                          {cat.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        })()}
 
         {/* ─── v1.0 Fresh from people you follow ─── */}
         {(() => {
