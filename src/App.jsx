@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.0 · Rooms discover says Join · reveal icon = energy bolt";
+const APP_VERSION = "v1.1.1 · header + rank panel + twitter tabs";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -985,6 +985,8 @@ const RANKS = [
 
 const RANK_LABELS = ["Scout","Finder","Hunter","Tracker","Elite"];
 const RANK_COLORS = ["#A0907A","#6B5B4A","#8B0038","#FFFFFF","#FFFFFF"];
+// Total upvotes received to reach each tier (used for rank-panel progress)
+const RANK_THRESH = [0, 10, 30, 75, 200];
 
 // Qatar districts
 // "Doha, Qatar" is a mega-location — represents the whole city. Used as a country-wide aggregator/default.
@@ -3106,7 +3108,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // Original DealCard return preserved below for reference — unreachable.
 // (Kept temporarily during the v1.0 design transition.)
 function __LEGACY_DEAL_CARD_BODY__() { return null; }
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false, onNotifications, unreadCount=0 }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false, onNotifications, unreadCount=0, onNavHide }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||[]);
   // These now come from Firestore subscriptions in App.jsx, passed via props.
@@ -3157,9 +3159,39 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
   const [on, setOn]               = useState(false);
   const hint                      = useTyping(HINTS);
   const [query, setQuery]         = useState("");
+  // v1.1.1 — rank panel open/closed + scroll-aware lift-up
+  const [hudOpen, setHudOpen]               = useState(false);
+  const [scrollCollapsed, setScrollCollapsed] = useState(false);
   const c = TH[theme];
 
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
+
+  // v1.1.1 — Scroll-aware: collapses the HUD/tabs lift-up container + hides bottom nav on scroll-down,
+  // restores both on scroll-up or near the top.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let lastY = 0;
+    let lastDir = 0;
+    const downThreshold = 60;
+    const dirDeltaThreshold = 6;
+    const onScroll = () => {
+      const y = el.scrollTop;
+      const dy = y - lastY;
+      if (Math.abs(dy) >= dirDeltaThreshold) lastDir = dy > 0 ? 1 : -1;
+      if (y > downThreshold && lastDir === 1) {
+        setScrollCollapsed(true);
+        onNavHide && onNavHide(true);
+      } else if (lastDir === -1 || y < 20) {
+        setScrollCollapsed(false);
+        onNavHide && onNavHide(false);
+      }
+      lastY = y;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onNavHide]);
 
   // Grant daily login bonus once per session per day
   useEffect(() => {
@@ -3479,7 +3511,7 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
         onTouchStart={onTouchStartRefresh}
         onTouchMove={onTouchMoveRefresh}
         onTouchEnd={onTouchEndRefresh}
-        style={{ flex:1, overflowY:"auto", paddingBottom:12, position:"relative", overscrollBehavior:"contain" }}
+        style={{ flex:1, overflowY:"auto", paddingBottom:100, position:"relative", overscrollBehavior:"contain" }}
       >
 
         {/* Pull-to-refresh indicator */}
@@ -3504,26 +3536,43 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
           ) : <div style={{ height:22 }}/>}
         </div>
 
-        {/* Header */}
-        <div style={{ padding:"12px 20px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
-              <span style={{ fontSize:26, fontWeight:700, color:c.text, letterSpacing:"-0.04em", fontFamily:"'DM Sans',sans-serif" }}>BKM</span>
-              <span style={{ fontSize:12, color:c.accent, fontFamily:"'Noto Naskh Arabic',serif" }}>بكم</span>
-            </div>
-            <span style={{ fontSize:9, fontWeight:700, color:"#F59E0B", background:"#F59E0B18", border:"1px solid #F59E0B44", borderRadius:5, padding:"2px 6px", fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
+        {/* Header — v1.1.1: BKM wordmark + Arabic + BETA on left; streak chip + clickable energy chip + bell on right */}
+        <div style={{ padding:"14px 20px 12px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+            <span style={{ fontSize:24, fontWeight:800, color:c.text, letterSpacing:"-0.045em", fontFamily:"'DM Sans',sans-serif" }}>BKM</span>
+            <span style={{ fontSize:14, color:c.accent, fontFamily:"'Noto Naskh Arabic',serif", fontWeight:600 }}>بكم</span>
+            <span style={{ fontSize:8.5, fontWeight:800, letterSpacing:"0.12em", color:c.gold, background:"rgba(224,163,62,0.10)", border:"1px solid rgba(224,163,62,0.35)", borderRadius:5, padding:"2px 6px", marginLeft:4, fontFamily:"'DM Sans',sans-serif" }}>BETA</span>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
             {SESSION.streak > 0 && (
-              <div style={{ display:"flex", alignItems:"center", gap:4, background:`${c.accent}10`, border:`1px solid ${c.accent}33`, borderRadius:14, padding:"5px 9px 5px 7px" }} title={`${SESSION.streak}-day streak${SESSION.bestStreak>SESSION.streak?` · Best: ${SESSION.bestStreak}`:""}`}>
-                <svg width="12" height="14" viewBox="0 0 24 24" fill="#FF6B35"><path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/></svg>
-                <span style={{ fontSize:12, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{SESSION.streak}</span>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:4, background:"rgba(255,107,71,0.10)", border:"1px solid rgba(255,107,71,0.32)", borderRadius:999, padding:"5px 9px 5px 8px" }} title={`${SESSION.streak}-day streak${SESSION.bestStreak>SESSION.streak?` · Best: ${SESSION.bestStreak}`:""}`}>
+                <svg width="11" height="13" viewBox="0 0 24 24" fill={c.hot||"#FF6B47"}><path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/></svg>
+                <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>{SESSION.streak}</span>
               </div>
             )}
-            <div style={{ display:"flex", alignItems:"center", gap:6, background:c.muted, border:`1px solid ${c.border}`, borderRadius:14, padding:"5px 10px 5px 8px", cursor:"default" }} title={energy < MAX_ENERGY ? `Refills 1 every 2h · Next in ${getTimeToNextRefill()||"soon"}` : "Energy full"}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill={energy>0?c.accent:c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
-              <span style={{ fontSize:13, fontWeight:800, color:energy>0?c.text:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.01em" }}>{energy}</span>
-            </div>
+            {/* Energy chip — gold-tinted pill, click to toggle rank panel */}
+            <button
+              onClick={()=>{ sfx.tap(); setHudOpen(o=>!o); }}
+              aria-label="Show rank progress"
+              title={energy < MAX_ENERGY ? `${energy} reveals · Next refill in ${getTimeToNextRefill()||"soon"}` : "Energy full"}
+              style={{
+                display:"inline-flex", alignItems:"center", gap:5,
+                background: hudOpen ? "rgba(224,163,62,0.22)" : "rgba(224,163,62,0.12)",
+                border: `1px solid ${hudOpen ? "rgba(224,163,62,0.60)" : "rgba(224,163,62,0.38)"}`,
+                borderRadius:999, padding:"5px 10px 5px 8px",
+                cursor:"pointer", color:c.gold,
+                transition:"background 160ms ease, border-color 160ms ease",
+              }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={energy>0?c.gold:c.sub}><polygon points="13 2 4 14 11 14 10 22 20 10 13 10"/></svg>
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12.5, fontWeight:800, color:energy>0?c.text:c.sub, letterSpacing:"-0.02em" }}>{energy}</span>
+            </button>
+            {/* Notification bell — moved from search row into the header */}
+            <button onClick={()=>{ sfx.tap(); onNotifications && onNotifications(); }} aria-label="Notifications" style={{ position:"relative", width:32, height:32, borderRadius:"50%", background:c.surface||c.muted, border:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"center", color:c.text2||c.sub, cursor:"pointer", flexShrink:0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              {unreadCount > 0 && (
+                <div style={{ position:"absolute", top:5, right:6, minWidth:14, height:14, borderRadius:8, background:c.accent, color:"#FFFFFF", fontSize:8, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`1.5px solid ${c.bg}`, fontFamily:"'DM Sans',sans-serif" }}>{unreadCount > 99 ? "99+" : unreadCount}</div>
+              )}
+            </button>
           </div>
         </div>
 
@@ -3535,34 +3584,104 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
           </div>
         )}
 
-        {/* Search bar + Notification bell */}
-        <div style={{ padding:"0 20px 16px" }}>
-          <div style={{ display:"flex", gap:10 }}>
-            <div style={{ flex:1, display:"flex", alignItems:"center", gap:10, background:c.inputBg, border:`1.5px solid ${c.inputBorder}`, borderRadius:14, padding:"12px 16px", transition:"border-color 0.2s" }}>
-              <Ico.Search s={14} c={c.sub}/>
-              <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&query.trim()&&onSearch(query)} placeholder={hint||"Search deals..."} style={{ flex:1, background:"none", border:"none", outline:"none", fontSize:14, color:c.text, fontFamily:"'DM Sans',sans-serif" }}
-                onFocus={e=>e.currentTarget.parentNode.style.borderColor=c.accent} onBlur={e=>e.currentTarget.parentNode.style.borderColor=c.inputBorder}/>
-            </div>
-            <button onClick={()=>{ sfx.tap(); onNotifications && onNotifications(); }} aria-label="Notifications" style={{ position:"relative", width:48, background:c.inputBg, border:`1.5px solid ${c.inputBorder}`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-              {unreadCount > 0 && (
-                <div style={{ position:"absolute", top:4, right:4, minWidth:16, height:16, borderRadius:8, background:c.accent, color:"#FFFFFF", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 4px", border:`2px solid ${c.bg}`, fontFamily:"'DM Sans',sans-serif", animation:"bellPulse 1.4s ease-in-out infinite" }}>{unreadCount > 99 ? "99+" : unreadCount}</div>
-              )}
-            </button>
-          </div>
-        </div>
+        {/* v1.1.1 — Lift-up container wraps the Rank Panel + Twitter-style tabs.
+            Whole container collapses on scroll-down, restores on scroll-up.
+            Search bar is gone (search now lives in its own bottom-nav tab). */}
+        {(() => {
+          // Compute rank progress from user's own deals (ups received)
+          const myUid = fbAuth.currentUser?.uid;
+          const myTotalUps = (deals || []).reduce((sum, d) => (d.userId === myUid ? sum + (d.ups || 0) : sum), 0);
+          const currentRankIdx = Math.min((SESSION.rank || 0), RANK_LABELS.length - 1);
+          const isTopRank = currentRankIdx >= RANK_LABELS.length - 1;
+          const currentRankLabel = RANK_LABELS[currentRankIdx];
+          const nextRankLabel = isTopRank ? null : RANK_LABELS[currentRankIdx + 1];
+          const currentThresh = RANK_THRESH[currentRankIdx] || 0;
+          const nextThresh = isTopRank ? currentThresh : (RANK_THRESH[currentRankIdx + 1] || currentThresh + 50);
+          const rankProgressPct = isTopRank
+            ? 100
+            : Math.max(2, Math.min(99, Math.round(((myTotalUps - currentThresh) / Math.max(1, nextThresh - currentThresh)) * 100)));
+          return (
+            <div style={{
+              position:"relative", zIndex:20, background:c.bg,
+              flexShrink:0, overflow:"hidden",
+              maxHeight: scrollCollapsed ? 0 : 200,
+              opacity: scrollCollapsed ? 0 : 1,
+              transform: scrollCollapsed ? "translateY(-6px)" : "translateY(0)",
+              transition: "max-height 260ms cubic-bezier(.4,0,.2,1), opacity 200ms ease, transform 260ms cubic-bezier(.4,0,.2,1)",
+            }}>
+              {/* Rank panel — opens when energy chip is tapped */}
+              <div style={{
+                overflow:"hidden",
+                maxHeight: hudOpen ? 56 : 0,
+                opacity: hudOpen ? 1 : 0,
+                padding: hudOpen ? "6px 20px 4px" : "0 20px",
+                transition: "max-height 240ms cubic-bezier(.4,0,.2,1), opacity 180ms ease, padding 240ms ease",
+              }}>
+                <div style={{
+                  display:"flex", alignItems:"center", justifyContent:"space-between",
+                  gap:10, padding:"4px 0 6px",
+                  borderBottom:`1px solid ${c.border}`,
+                }}>
+                  <div style={{ display:"inline-flex", alignItems:"center", gap:7, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:600, color:c.text2||c.sub, whiteSpace:"nowrap", flex:1, minWidth:0 }}>
+                    <span style={{ width:7, height:7, borderRadius:"50%", background:c.accent, flexShrink:0 }}/>
+                    <span style={{ fontWeight:700, color:c.text }}>{currentRankLabel}</span>
+                    {!isTopRank && (
+                      <>
+                        <span style={{ color:c.sub, fontSize:10 }}>▸</span>
+                        <span style={{ color:c.text2||c.sub, fontWeight:600 }}>{nextRankLabel}</span>
+                      </>
+                    )}
+                    {/* Inline progress bar — fills the empty space */}
+                    <div style={{ flex:"1 1 auto", minWidth:60, height:4, background:c.muted, borderRadius:2, overflow:"hidden", margin:"0 10px" }}>
+                      <div style={{ height:"100%", width:`${rankProgressPct}%`, background:`linear-gradient(90deg, ${c.gold}, ${c.accent})`, borderRadius:2 }}/>
+                    </div>
+                    <span style={{ color:c.gold, fontFamily:"'JetBrains Mono',monospace", fontWeight:800, fontSize:12, letterSpacing:"-0.01em", flexShrink:0 }}>{rankProgressPct}%</span>
+                  </div>
+                  <button
+                    onClick={()=>{ sfx.tap(); setHudOpen(false); }}
+                    aria-label="Close"
+                    title="Close"
+                    style={{ width:26, height:26, background:"transparent", border:"none", cursor:"pointer", color:c.sub, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:6, flexShrink:0, transition:"color 160ms ease, background 160ms ease" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 15 12 9 18 15"/></svg>
+                  </button>
+                </div>
+              </div>
 
-        {/* For You / Following toggle */}
-        <div style={{ padding:"0 20px 12px" }}>
-          <div style={{ display:"flex", gap:0, background:c.muted, borderRadius:11, padding:3, border:`1px solid ${c.border}` }}>
-            {[
-              {k:"foryou",    label:"For You"},
-              {k:"following", label:`Following${SESSION.following.size>0?` (${SESSION.following.size})`:""}`},
-            ].map(t=>(
-              <button key={t.k} onClick={()=>{ setFeedFilter(t.k); SESSION.feedFilter=t.k; }} style={{ flex:1, padding:"8px 0", background:feedFilter===t.k?c.bg:"transparent", border:"none", borderRadius:9, fontSize:12, fontWeight:feedFilter===t.k?700:500, color:feedFilter===t.k?c.accent:c.sub, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.18s", boxShadow:feedFilter===t.k?"0 1px 4px rgba(0,0,0,0.08)":"none" }}>{t.label}</button>
-            ))}
-          </div>
-        </div>
+              {/* Twitter-style For You / Following tabs */}
+              <div style={{ display:"flex", padding:"4px 20px 0", borderBottom:`1px solid ${c.border}` }}>
+                {[
+                  {k:"foryou",    label:"For You", count:null},
+                  {k:"following", label:"Following", count:SESSION.following.size>0?SESSION.following.size:null},
+                ].map(t => {
+                  const active = feedFilter === t.k;
+                  return (
+                    <button
+                      key={t.k}
+                      onClick={()=>{ sfx.tap(); setFeedFilter(t.k); SESSION.feedFilter=t.k; }}
+                      style={{
+                        flex:1, background:"transparent", border:"none", cursor:"pointer",
+                        padding:"11px 0 12px",
+                        fontSize:13.5, fontWeight:active?700:600,
+                        color:active?c.text:c.sub,
+                        letterSpacing:"-0.012em",
+                        position:"relative",
+                        transition:"color 160ms ease",
+                        fontFamily:"'DM Sans',sans-serif",
+                      }}>
+                      {t.label}
+                      {t.count != null && (
+                        <span style={{ color:active?(c.text2||c.sub):c.sub, fontWeight:600, fontSize:12, marginLeft:2 }}> ({t.count})</span>
+                      )}
+                      {active && (
+                        <div style={{ position:"absolute", bottom:-1, left:"50%", transform:"translateX(-50%)", width:34, height:3, background:c.accent, borderRadius:"2px 2px 0 0" }}/>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Category filter */}
         <div style={{ paddingBottom:16, overflowX:"auto", scrollbarWidth:"none" }}>
@@ -7035,6 +7154,8 @@ export default function BKMApp() {
   const [tab, setTab]               = useState("feed");
   const [fading, setFading]         = useState(false);
   const [pushedScreen, setPushed]   = useState(null);
+  // v1.1.1 — bottom nav scroll-aware hide; controlled by Feed's scroll handler
+  const [navHidden, setNavHidden]   = useState(false);
   const [feedDeals, setFeedDeals]   = useState([]);                 // populated from Firestore
   const [pendingPosts, setPending]  = useState([]);                 // populated from Firestore (admin-only)
   const [feedLoading, setFeedLoading] = useState(true);
@@ -7052,6 +7173,9 @@ export default function BKMApp() {
   const [userClaimed,   setUserClaimed]   = useState(new Set());      // Set<dealId>
   const [userFollows,   setUserFollows]   = useState(new Set());      // Set<targetUid>
   const [userBlocks,    setUserBlocks]    = useState(new Set());      // Set<blockedUid>
+
+  // v1.1.1 — when the user leaves Feed, restore the bottom nav (Feed is the only tab that hides it)
+  useEffect(() => { if (tab !== "feed") setNavHidden(false); }, [tab]);
 
   // === Firebase auth state listener — keeps UI in sync with auth ===
   const initialAuthRouted = useRef(false);
@@ -7514,7 +7638,7 @@ export default function BKMApp() {
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
     if (pushedScreen?.type==="followers")     return <FollowersScreen uid={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin} onNotifications={()=>push("notifications",null)} unreadCount={unreadCount}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin} onNotifications={()=>push("notifications",null)} unreadCount={unreadCount} onNavHide={setNavHidden}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
@@ -7670,7 +7794,7 @@ export default function BKMApp() {
         @keyframes slideDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
 
-      <div style={{ width:"100%", height:"100%", background:c.bg, display:"flex", flexDirection:"column", transition:"background 0.35s ease", opacity:fading?0:1, overflow:"hidden" }}>
+      <div style={{ width:"100%", height:"100%", background:c.bg, display:"flex", flexDirection:"column", transition:"background 0.35s ease", opacity:fading?0:1, overflow:"hidden", position:"relative" }}>
 
       {/* Toast notifications */}
       {toasts.length > 0 && (
@@ -7793,9 +7917,20 @@ export default function BKMApp() {
           {screen==="feed"          && renderTab()}
         </div>
 
-        {/* Bottom nav — 5 tabs, symmetric, Post center-raised */}
+        {/* Bottom nav — v1.1.1: transparent gradient bg overlays feed + scroll-aware hide; Post is center-raised */}
         {showTabs && (
-          <div style={{ height:72, borderTop:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-around", background:c.bg, flexShrink:0, padding:"0 8px" }}>
+          <div style={{
+            position:"absolute", bottom:0, left:0, right:0,
+            height:72,
+            display:"flex", alignItems:"center", justifyContent:"space-around",
+            background:`linear-gradient(180deg, transparent 0%, ${c.bg} 30%)`,
+            padding:"0 8px",
+            zIndex:40,
+            transform: navHidden ? "translateY(110%)" : "translateY(0)",
+            opacity: navHidden ? 0 : 1,
+            transition: "transform 240ms cubic-bezier(.4,0,.2,1), opacity 180ms ease",
+            pointerEvents: navHidden ? "none" : "auto",
+          }}>
             {[
               { key:"feed",        label:"Feed",   Ico:Ico.Home   },
               { key:"search",      label:"Search", Ico:Ico.Search },
