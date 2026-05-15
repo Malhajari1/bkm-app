@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.2 · category dropdown · breathing room";
+const APP_VERSION = "v1.1.3 · sticky tabs · tap-feed-to-top";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3108,7 +3108,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
 // Original DealCard return preserved below for reference — unreachable.
 // (Kept temporarily during the v1.0 design transition.)
 function __LEGACY_DEAL_CARD_BODY__() { return null; }
-function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false, onNotifications, unreadCount=0, onNavHide }) {
+function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSearch, onOpenPost, onReveal, onUpvote, onPartnerRequest, onPostBetter, userVotes, userBookmarks, userClaimed, userFollows, onReportPost, onBlockUser, onDeleteOwnPost, isAdmin=false, onNotifications, unreadCount=0, onNavHide, scrollTopTick=0 }) {
   const interests = SESSION.interests || [];
   const [deals, setDeals]           = useState(initialDeals||[]);
   // These now come from Firestore subscriptions in App.jsx, passed via props.
@@ -3194,6 +3194,13 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
     return () => el.removeEventListener("scroll", onScroll);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNavHide]);
+
+  // v1.1.3 — Tapping the Feed bottom-nav while already on Feed scrolls back to top
+  useEffect(() => {
+    if (scrollTopTick > 0 && scrollRef.current) {
+      scrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [scrollTopTick]);
 
   // Grant daily login bonus once per session per day
   useEffect(() => {
@@ -3603,6 +3610,8 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             ? 100
             : Math.max(2, Math.min(99, Math.round(((myTotalUps - currentThresh) / Math.max(1, nextThresh - currentThresh)) * 100)));
           return (
+            <>
+            {/* Lift-up container now holds ONLY the rank panel; tabs are sticky below */}
             <div style={{
               position:"relative", zIndex:20, background:c.bg,
               flexShrink:0, overflow:"hidden",
@@ -3648,40 +3657,46 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
                   </button>
                 </div>
               </div>
-
-              {/* Twitter-style For You / Following tabs */}
-              <div style={{ display:"flex", padding:"4px 20px 0", borderBottom:`1px solid ${c.border}` }}>
-                {[
-                  {k:"foryou",    label:"For You", count:null},
-                  {k:"following", label:"Following", count:SESSION.following.size>0?SESSION.following.size:null},
-                ].map(t => {
-                  const active = feedFilter === t.k;
-                  return (
-                    <button
-                      key={t.k}
-                      onClick={()=>{ sfx.tap(); setFeedFilter(t.k); SESSION.feedFilter=t.k; }}
-                      style={{
-                        flex:1, background:"transparent", border:"none", cursor:"pointer",
-                        padding:"11px 0 12px",
-                        fontSize:13.5, fontWeight:active?700:600,
-                        color:active?c.text:c.sub,
-                        letterSpacing:"-0.012em",
-                        position:"relative",
-                        transition:"color 160ms ease",
-                        fontFamily:"'DM Sans',sans-serif",
-                      }}>
-                      {t.label}
-                      {t.count != null && (
-                        <span style={{ color:active?(c.text2||c.sub):c.sub, fontWeight:600, fontSize:12, marginLeft:2 }}> ({t.count})</span>
-                      )}
-                      {active && (
-                        <div style={{ position:"absolute", bottom:-1, left:"50%", transform:"translateX(-50%)", width:34, height:3, background:c.accent, borderRadius:"2px 2px 0 0" }}/>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
+
+            {/* v1.1.3 — Twitter-style For You / Following tabs — STICKY so the user can switch feeds from any scroll position */}
+            <div style={{
+              position:"sticky", top:0, zIndex:25,
+              background:c.bg,
+              display:"flex", padding:"4px 20px 0",
+              borderBottom:`1px solid ${c.border}`,
+            }}>
+              {[
+                {k:"foryou",    label:"For You", count:null},
+                {k:"following", label:"Following", count:SESSION.following.size>0?SESSION.following.size:null},
+              ].map(t => {
+                const active = feedFilter === t.k;
+                return (
+                  <button
+                    key={t.k}
+                    onClick={()=>{ sfx.tap(); setFeedFilter(t.k); SESSION.feedFilter=t.k; }}
+                    style={{
+                      flex:1, background:"transparent", border:"none", cursor:"pointer",
+                      padding:"11px 0 12px",
+                      fontSize:13.5, fontWeight:active?700:600,
+                      color:active?c.text:c.sub,
+                      letterSpacing:"-0.012em",
+                      position:"relative",
+                      transition:"color 160ms ease",
+                      fontFamily:"'DM Sans',sans-serif",
+                    }}>
+                    {t.label}
+                    {t.count != null && (
+                      <span style={{ color:active?(c.text2||c.sub):c.sub, fontWeight:600, fontSize:12, marginLeft:2 }}> ({t.count})</span>
+                    )}
+                    {active && (
+                      <div style={{ position:"absolute", bottom:-1, left:"50%", transform:"translateX(-50%)", width:34, height:3, background:c.accent, borderRadius:"2px 2px 0 0" }}/>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            </>
           );
         })()}
 
@@ -7200,6 +7215,8 @@ export default function BKMApp() {
   const [pushedScreen, setPushed]   = useState(null);
   // v1.1.1 — bottom nav scroll-aware hide; controlled by Feed's scroll handler
   const [navHidden, setNavHidden]   = useState(false);
+  // v1.1.3 — increments each time the user taps the Feed nav while already on Feed (triggers scroll-to-top)
+  const [scrollTopTick, setScrollTopTick] = useState(0);
   const [feedDeals, setFeedDeals]   = useState([]);                 // populated from Firestore
   const [pendingPosts, setPending]  = useState([]);                 // populated from Firestore (admin-only)
   const [feedLoading, setFeedLoading] = useState(true);
@@ -7682,7 +7699,7 @@ export default function BKMApp() {
     if (pushedScreen?.type==="settings")      return <SettingsScreen theme={theme} themeMode={themeMode} setThemeMode={setThemeMode} lang={lang} setLang={setLang} notifSettings={notifSettings} setNotifSettings={setNotifSettings} onBack={pop} onSignOut={signOut}/>;
     if (pushedScreen?.type==="following")     return <FollowingList theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
     if (pushedScreen?.type==="followers")     return <FollowersScreen uid={pushedScreen.data} theme={theme} lang={lang} onBack={pop} onUserTap={u=>{ pop(); push("user",u); }}/>;
-    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin} onNotifications={()=>push("notifications",null)} unreadCount={unreadCount} onNavHide={setNavHidden}/>;
+    if (tab==="feed")    return <Feed       theme={theme} lang={lang} deals={visibleFeedDeals} onUserTap={u=>push("user",u)} onLocationTap={d=>push("location",d)} onSearch={q=>{ setFeedQuery(q); setPushed(null); setTab("search"); }} onOpenPost={d=>push("post",d)} onReveal={(msg)=>notifSettings.reveals&&addToast(msg,"reveal")} onUpvote={(msg)=>notifSettings.upvotes&&addToast(msg,"upvote")} onPartnerRequest={()=>{ setPartnerOrigin("feed"); go("partner"); }} onPostBetter={(deal)=>{ setPushed(null); setPostPrefill(deal); setTab("post"); }} userVotes={userVotes} userBookmarks={userBookmarks} userClaimed={userClaimed} userFollows={userFollows} onReportPost={handleReportPost} onBlockUser={handleBlockUser} onDeleteOwnPost={handleDeleteOwnPost} isAdmin={isAdmin} onNotifications={()=>push("notifications",null)} unreadCount={unreadCount} onNavHide={setNavHidden} scrollTopTick={scrollTopTick}/>;
     if (tab==="search")  return <SearchTab  theme={theme} lang={lang} onLocationTap={d=>push("location",d)} initialQuery={feedQuery} liveDeals={feedDeals}/>;
     if (tab==="communities") return <ErrorBoundary><CommunitiesTab theme={theme} lang={lang} onOpenCommunity={(cid)=>{ setActiveCommunityId(cid); go("community"); }} onCreateCommunity={()=>go("createCommunity")}/></ErrorBoundary>;
     if (tab==="post")    return <PostDeal   theme={theme} lang={lang} onBack={()=>setTab("feed")} prefill={postPrefill} onClearPrefill={()=>setPostPrefill(null)} onSubmit={handleNewPost}/>;
@@ -7984,7 +8001,16 @@ export default function BKMApp() {
             ].map(item => {
               const active = !pushedScreen && tab===item.key;
               return (
-                <button key={item.key} onClick={()=>{ sfx.tap(); setPushed(null); setTab(item.key); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 10px", position:"relative", flex:1 }}>
+                <button key={item.key} onClick={()=>{
+                  sfx.tap();
+                  // v1.1.3 — tapping Feed while already on Feed scrolls back to top
+                  if (item.key === "feed" && tab === "feed" && !pushedScreen) {
+                    setScrollTopTick(t => t + 1);
+                    return;
+                  }
+                  setPushed(null);
+                  setTab(item.key);
+                }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer", padding:"6px 10px", position:"relative", flex:1 }}>
                   {item.isCompose ? (
                     <div style={{ width:40, height:40, borderRadius:12, background:`linear-gradient(135deg, ${c.gold}, ${c.accent})`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:active?`0 4px 18px ${c.gold}66`:`0 3px 10px ${c.gold}44`, transform:active?"scale(1.06) translateY(-4px)":"translateY(-4px)", transition:"transform 0.2s, box-shadow 0.2s" }}>
                       <item.Ico s={20} c={c.btnText}/>
