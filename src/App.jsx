@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.3 · sticky tabs · tap-feed-to-top";
+const APP_VERSION = "v1.1.4 · tabs ride scroll · return on flick up";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3610,8 +3610,6 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             ? 100
             : Math.max(2, Math.min(99, Math.round(((myTotalUps - currentThresh) / Math.max(1, nextThresh - currentThresh)) * 100)));
           return (
-            <>
-            {/* Lift-up container now holds ONLY the rank panel; tabs are sticky below */}
             <div style={{
               position:"relative", zIndex:20, background:c.bg,
               flexShrink:0, overflow:"hidden",
@@ -3657,46 +3655,41 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
                   </button>
                 </div>
               </div>
-            </div>
 
-            {/* v1.1.3 — Twitter-style For You / Following tabs — STICKY so the user can switch feeds from any scroll position */}
-            <div style={{
-              position:"sticky", top:0, zIndex:25,
-              background:c.bg,
-              display:"flex", padding:"4px 20px 0",
-              borderBottom:`1px solid ${c.border}`,
-            }}>
-              {[
-                {k:"foryou",    label:"For You", count:null},
-                {k:"following", label:"Following", count:SESSION.following.size>0?SESSION.following.size:null},
-              ].map(t => {
-                const active = feedFilter === t.k;
-                return (
-                  <button
-                    key={t.k}
-                    onClick={()=>{ sfx.tap(); setFeedFilter(t.k); SESSION.feedFilter=t.k; }}
-                    style={{
-                      flex:1, background:"transparent", border:"none", cursor:"pointer",
-                      padding:"11px 0 12px",
-                      fontSize:13.5, fontWeight:active?700:600,
-                      color:active?c.text:c.sub,
-                      letterSpacing:"-0.012em",
-                      position:"relative",
-                      transition:"color 160ms ease",
-                      fontFamily:"'DM Sans',sans-serif",
-                    }}>
-                    {t.label}
-                    {t.count != null && (
-                      <span style={{ color:active?(c.text2||c.sub):c.sub, fontWeight:600, fontSize:12, marginLeft:2 }}> ({t.count})</span>
-                    )}
-                    {active && (
-                      <div style={{ position:"absolute", bottom:-1, left:"50%", transform:"translateX(-50%)", width:34, height:3, background:c.accent, borderRadius:"2px 2px 0 0" }}/>
-                    )}
-                  </button>
-                );
-              })}
+              {/* v1.1.4 — Twitter-style For You / Following tabs ride up with the rank panel on scroll-down
+                  and return the moment the user scrolls up (same dynamic as Twitter) */}
+              <div style={{ display:"flex", padding:"4px 20px 0", borderBottom:`1px solid ${c.border}`, background:c.bg }}>
+                {[
+                  {k:"foryou",    label:"For You", count:null},
+                  {k:"following", label:"Following", count:SESSION.following.size>0?SESSION.following.size:null},
+                ].map(t => {
+                  const active = feedFilter === t.k;
+                  return (
+                    <button
+                      key={t.k}
+                      onClick={()=>{ sfx.tap(); setFeedFilter(t.k); SESSION.feedFilter=t.k; }}
+                      style={{
+                        flex:1, background:"transparent", border:"none", cursor:"pointer",
+                        padding:"11px 0 12px",
+                        fontSize:13.5, fontWeight:active?700:600,
+                        color:active?c.text:c.sub,
+                        letterSpacing:"-0.012em",
+                        position:"relative",
+                        transition:"color 160ms ease",
+                        fontFamily:"'DM Sans',sans-serif",
+                      }}>
+                      {t.label}
+                      {t.count != null && (
+                        <span style={{ color:active?(c.text2||c.sub):c.sub, fontWeight:600, fontSize:12, marginLeft:2 }}> ({t.count})</span>
+                      )}
+                      {active && (
+                        <div style={{ position:"absolute", bottom:-1, left:"50%", transform:"translateX(-50%)", width:34, height:3, background:c.accent, borderRadius:"2px 2px 0 0" }}/>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            </>
           );
         })()}
 
