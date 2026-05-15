@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.4 · tabs ride scroll · return on flick up";
+const APP_VERSION = "v1.1.6 · sticky tabs animate · drop blue founder star";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -1237,7 +1237,8 @@ function ColorAvatar({ user, size=38 }) {
   );
 }
 
-// Avatar with rank ring + founder badge
+// Avatar with rank ring (founder verification now lives as a gold ✓ next to the username,
+// not as a blue badge on the avatar — see DealCard byline + PostDetail byline)
 function Avatar({ user, size=38, showFounder=true }) {
   const isFounder = user?.founder;
   const ringBg = isFounder
@@ -1251,11 +1252,6 @@ function Avatar({ user, size=38, showFounder=true }) {
       <div style={{ width:size, height:size, borderRadius:"50%", background:col.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
         <span style={{ fontSize:size*0.42, fontWeight:800, color:col.fg, fontFamily:"'DM Sans',sans-serif", lineHeight:1 }}>{init}</span>
       </div>
-      {isFounder && showFounder && (
-        <div style={{ position:"absolute", bottom:-1, right:-1, width:Math.max(13,size*0.34), height:Math.max(13,size*0.34), borderRadius:"50%", background:"linear-gradient(135deg,#1D6FEB,#56B0FF)", border:"2px solid #181513", display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <svg width="7" height="7" viewBox="0 0 24 24" fill="#FFFFFF"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-        </div>
-      )}
     </div>
   );
 }
@@ -3611,12 +3607,12 @@ function Feed({ theme, lang, deals:initialDeals, onUserTap, onLocationTap, onSea
             : Math.max(2, Math.min(99, Math.round(((myTotalUps - currentThresh) / Math.max(1, nextThresh - currentThresh)) * 100)));
           return (
             <div style={{
-              position:"relative", zIndex:20, background:c.bg,
-              flexShrink:0, overflow:"hidden",
-              maxHeight: scrollCollapsed ? 0 : 200,
+              position:"sticky", top:0, zIndex:25, background:c.bg,
+              transform: scrollCollapsed ? "translateY(-100%)" : "translateY(0)",
               opacity: scrollCollapsed ? 0 : 1,
-              transform: scrollCollapsed ? "translateY(-6px)" : "translateY(0)",
-              transition: "max-height 260ms cubic-bezier(.4,0,.2,1), opacity 200ms ease, transform 260ms cubic-bezier(.4,0,.2,1)",
+              transition: "transform 260ms cubic-bezier(.4,0,.2,1), opacity 200ms ease",
+              pointerEvents: scrollCollapsed ? "none" : "auto",
+              willChange: "transform",
             }}>
               {/* Rank panel — opens when energy chip is tapped */}
               <div style={{
