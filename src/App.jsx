@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.7 · post fixes · skip TOS re-consent";
+const APP_VERSION = "v1.1.8 · per-item was/now · auto savings";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3873,9 +3873,8 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
   const [district, setDistrict] = useState(prefill?.district||"");
   const [cat, setCat]           = useState(prefill?.cat||"");
   const [platform, setPlatform] = useState(prefill?.platform||"");
-  const [items, setItems]       = useState([{ n:"", p:"" }]);
-  const [postType, setPostType] = useState("deal");   // "deal" = type 1 (was/now) | "tip" = type 2 (single price)
-  const [wasPrice, setWasPrice] = useState("");        // only used when postType === "deal"
+  const [items, setItems]       = useState([{ n:"", p:"", w:"" }]);
+  const [postType, setPostType] = useState("deal");   // "deal" = type 1 (was/now per item) | "tip" = type 2 (single price)
   const [on, setOn]             = useState(false);
   const c = TH[theme];
   useEffect(()=>{ if(prefill&&onClearPrefill) onClearPrefill(); },[]);
@@ -3892,29 +3891,32 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
     { key:"other",   label:"Other",    color:"#888888" },
   ];
 
-  const addItem    = () => setItems(x=>[...x,{n:"",p:""}]);
+  const addItem    = () => setItems(x=>[...x,{ n:"", p:"", w:"" }]);
   const updateItem = (i,f,v) => setItems(x=>x.map((it,idx)=>idx===i?{...it,[f]:v}:it));
   const removeItem = (i) => setItems(x=>x.filter((_,idx)=>idx!==i));
 
-  // Auto-derive totals + savings from the items list.
-  // Each item carries its own name + price. The first row defaults to a sensible starting state.
+  // v1.1.8 — Each item carries its own was (w) + now (p). Savings auto-totals across items.
   const validItems = items.filter(it => it.n && it.p);
   const nowTotal   = validItems.reduce((sum, it) => sum + (Number(it.p) || 0), 0);
-  const wasNum     = Number(wasPrice) || 0;
-  const savings    = (postType === "deal" && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal) ? (wasNum - nowTotal) : 0;
-  const savePct    = (savings > 0) ? Math.round((savings / wasNum) * 100) : 0;
+  const wasTotal   = validItems.reduce((sum, it) => sum + (Number(it.w) || 0), 0);
+  const savings    = (postType === "deal" && wasTotal > 0 && nowTotal > 0 && wasTotal > nowTotal) ? (wasTotal - nowTotal) : 0;
+  const savePct    = (savings > 0 && wasTotal > 0) ? Math.round((savings / wasTotal) * 100) : 0;
 
   const ready = subject && place && district && cat && platform && validItems.length > 0
-    && (postType !== "deal" || (wasNum > 0 && wasNum > nowTotal));
+    && (postType !== "deal" || (wasTotal > 0 && wasTotal > nowTotal));
 
   const handleSubmit = () => {
     if (!ready) return;
     const post = {
       subject, place, district, cat, platform,
-      items: validItems.map(it => ({ n: it.n, p: Number(it.p) || 0 })),
+      items: validItems.map(it => ({
+        n: it.n,
+        p: Number(it.p) || 0,
+        ...(postType === "deal" ? { w: Number(it.w) || 0 } : {}),
+      })),
       address: district,
       postType,                                              // "deal" | "tip"
-      wasPrice: postType === "deal" ? wasNum : null,         // null on tips for clarity
+      wasPrice: postType === "deal" ? wasTotal : null,       // sum of per-item was prices (backward compat)
     };
     onSubmit && onSubmit(post);
     setStep("submitted");
@@ -3991,7 +3993,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
                       </span>
                       {postType === "deal" && savings > 0 && (
                         <>
-                          <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {wasPrice}</span>
+                          <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {validItems.length > 1 ? wasTotal.toFixed(0) : (items[0]?.w || "")}</span>
                           <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"1.5px 5px", borderRadius:3, letterSpacing:"0.04em" }}>−{savePct}%</span>
                         </>
                       )}
@@ -4119,31 +4121,39 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
             </button>
           </div>
 
-          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {items.map((item, idx) => {
               const isFirst = idx === 0;
-              const isSingle = items.length === 1;
-              // v1.1.7 — was/now grid ONLY for the single-item deal mode.
-              // Tip mode + multi-item deal mode both use the compact one-line layout.
-              const showWasInline = isFirst && isSingle && postType === "deal";
               return (
                 <div key={idx} style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                  {showWasInline ? (
+                  {postType === "deal" ? (
                     <>
-                      {/* Single-item deal: name on its own row, was/now grid below */}
-                      <input
-                        value={item.n}
-                        onChange={e=>updateItem(idx, "n", e.target.value)}
-                        placeholder="Item name (e.g. Chicken kabsa)"
-                        style={{ width:"100%", padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
-                        onFocus={e=>e.target.style.borderColor=c.gold}
-                        onBlur={e=>e.target.style.borderColor=c.border}
-                      />
+                      {/* Deal mode: name row + was/now grid per item */}
+                      <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                        <input
+                          value={item.n}
+                          onChange={e=>updateItem(idx, "n", e.target.value)}
+                          placeholder={isFirst ? "Item name (e.g. Chicken kabsa)" : "Another item"}
+                          style={{ flex:1, minWidth:0, padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
+                          onFocus={e=>e.target.style.borderColor=c.gold}
+                          onBlur={e=>e.target.style.borderColor=c.border}
+                        />
+                        {items.length > 1 && (
+                          <button
+                            onClick={()=>removeItem(idx)}
+                            type="button"
+                            aria-label="Remove item"
+                            style={{ width:36, height:38, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        )}
+                      </div>
                       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                         <div style={{ position:"relative" }}>
                           <input
-                            value={wasPrice}
-                            onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
+                            value={item.w}
+                            onChange={e=>updateItem(idx, "w", e.target.value.replace(/[^0-9.]/g, ""))}
                             placeholder="0"
                             inputMode="decimal"
                             style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:600, outline:"none" }}
@@ -4167,7 +4177,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
                       </div>
                     </>
                   ) : (
-                    /* Tip mode OR multi-item deal: name + price + remove all on one row */
+                    /* Tip mode: name + price + remove all on one row */
                     <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                       <input
                         value={item.n}
@@ -4181,7 +4191,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
                         <input
                           value={item.p}
                           onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
-                          placeholder={postType === "tip" ? "Price" : "0"}
+                          placeholder="Price"
                           inputMode="decimal"
                           style={{ width:"100%", padding:"11px 42px 11px 12px", background:c.surface, border:`1.5px solid ${isFirst ? c.gold : c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
                           onFocus={e=>e.target.style.borderColor=c.gold}
@@ -4206,17 +4216,24 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
             })}
           </div>
 
-          {/* Multi-item live total */}
+          {/* Multi-item live totals — show was → now + savings inline */}
           {validItems.length > 1 && (
-            <div style={{ marginTop:10, padding:"7px 12px", background:c.surface2 || c.muted, border:`1px solid ${c.border}`, borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif" }}>
-              <span style={{ fontSize:10, letterSpacing:"0.16em", textTransform:"uppercase", color:c.sub, fontWeight:700 }}>Total</span>
-              <span style={{ fontSize:14, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>
-                {nowTotal.toFixed(0)}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
-              </span>
+            <div style={{ marginTop:10, padding:"9px 12px", background:c.surface2 || c.muted, border:`1px solid ${c.border}`, borderRadius:10, fontFamily:"'DM Sans',sans-serif" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                <span style={{ fontSize:10, letterSpacing:"0.16em", textTransform:"uppercase", color:c.sub, fontWeight:700 }}>Total</span>
+                <div style={{ display:"flex", alignItems:"baseline", gap:7 }}>
+                  {postType === "deal" && wasTotal > 0 && wasTotal > nowTotal && (
+                    <span style={{ fontSize:11, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>{wasTotal.toFixed(0)}</span>
+                  )}
+                  <span style={{ fontSize:15, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>
+                    {nowTotal.toFixed(0)}<span style={{ fontSize:10, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Auto savings pill — shows under items when deal is profitable */}
+          {/* Auto savings pill — sums across all items when deal is profitable */}
           {postType === "deal" && savings > 0 && (
             <div style={{ marginTop:10, display:"inline-flex", alignItems:"center", gap:6, padding:"7px 13px", background:`${c.positive}24`, border:`1px solid ${c.positive}55`, borderRadius:100, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, fontWeight:800, color:c.positive }}>
               <span style={{ fontSize:13, fontWeight:900 }}>↓</span>
@@ -4225,28 +4242,6 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
           )}
         </div>
 
-        {/* Was-total for MULTI-item deals (single-item deals show was inline above) */}
-        {postType === "deal" && validItems.length > 1 && (
-          <div style={{ padding:"0 16px 14px" }}>
-            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7 }}>
-              <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub }}>
-                Was price · total <span style={{ color:c.gold }}>·</span>
-              </span>
-            </div>
-            <div style={{ position:"relative", maxWidth:220 }}>
-              <input
-                value={wasPrice}
-                onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
-                placeholder="What was the price before?"
-                inputMode="decimal"
-                style={{ width:"100%", padding:"11px 40px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:600, outline:"none" }}
-                onFocus={e=>e.target.style.borderColor=c.gold}
-                onBlur={e=>e.target.style.borderColor=c.border}
-              />
-              <span style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* v1.1.7 — Submit button floats above the bottom nav so it isn't buried by it */}
