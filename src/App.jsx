@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.9 · Proposal A · X% OFF · expand-crash fix";
+const APP_VERSION = "v1.2.0 · trust-leak cleanup · dev-press, ToS, Privacy, Rooms hidden";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -1377,10 +1377,27 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
   const [showDevInput, setShowDevInput] = useState(false);
   const [devCode, setDevCode]           = useState("");
   const [devError, setDevError]         = useState(false);
+  const [isPressing, setIsPressing]     = useState(false);
   const DEV_CODE = "1234";
+  const longPressRef = useRef(null);
   const c = TH[theme];
   useEffect(()=>{setTimeout(()=>setOn(true),80);},[]);
   const a = d => on ? { animation:`fu .55s cubic-bezier(.34,1.4,.64,1) ${d}s both` } : { opacity:0 };
+
+  // v1.2.0 — DEV access is now a long-press on the BKM wordmark (no longer a publicly visible button)
+  const startLongPress = () => {
+    if (longPressRef.current) clearTimeout(longPressRef.current);
+    setIsPressing(true);
+    longPressRef.current = setTimeout(() => {
+      setShowDevInput(true);
+      setIsPressing(false);
+      longPressRef.current = null;
+    }, 900);
+  };
+  const cancelLongPress = () => {
+    if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
+    setIsPressing(false);
+  };
 
   const handleDevSubmit = () => {
     if (devCode.trim() === DEV_CODE) {
@@ -1399,7 +1416,16 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
         <div style={{ ...a(0.06) }}>
           <TagMark size={80} fill={c.text} holeBg={c.bg}/>
         </div>
-        <div style={{ ...a(0.12), display:"flex", alignItems:"baseline", gap:8 }}>
+        <div
+          style={{ ...a(0.12), display:"flex", alignItems:"baseline", gap:8, cursor:"pointer", userSelect:"none", WebkitUserSelect:"none", WebkitTouchCallout:"none", transform: isPressing ? "scale(0.96)" : "scale(1)", opacity: isPressing ? 0.55 : 1, transition: "transform 0.4s ease, opacity 0.4s ease" }}
+          onMouseDown={startLongPress}
+          onMouseUp={cancelLongPress}
+          onMouseLeave={cancelLongPress}
+          onTouchStart={startLongPress}
+          onTouchEnd={cancelLongPress}
+          onTouchCancel={cancelLongPress}
+          title="Hold to access dev"
+        >
           <span style={{ fontSize:46, fontWeight:800, color:c.text, letterSpacing:"-0.04em", fontFamily:"'DM Sans',sans-serif" }}>BKM</span>
           <span style={{ fontSize:22, color:c.accent, fontFamily:"'Noto Naskh Arabic',serif" }}>بكم</span>
         </div>
@@ -1446,12 +1472,10 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
           </button>
         </div>
 
-        <div style={{ ...a(0.38), textAlign:"center", position:"relative" }}>
-          {!showDevInput ? (
-            <button onClick={()=>setShowDevInput(true)} style={{ background:"none", border:`1px dashed ${c.border}`, borderRadius:10, padding:"8px 20px", cursor:"pointer", fontSize:11, fontWeight:600, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>
-              DEV
-            </button>
-          ) : (
+        {/* v1.2.0 — DEV access is gated behind a long-press on the BKM wordmark above.
+            The visible DEV button has been removed for production safety. */}
+        {showDevInput && (
+          <div style={{ ...a(0.38), textAlign:"center", position:"relative" }}>
             <div style={{ display:"flex", flexDirection:"column", gap:10, animation:"fu 0.25s ease both", position:"relative" }}>
               <div style={{ fontSize:11, color:c.sub, letterSpacing:"0.12em", textTransform:"uppercase", fontFamily:"'DM Sans',sans-serif" }}>Enter 4-digit code</div>
               <label style={{ display:"flex", gap:8, justifyContent:"center", animation:devError?"shakeX 0.4s ease both":"none", cursor:"text" }}>
@@ -1479,10 +1503,10 @@ function Opening({ onStart, onLogin, onMerchant, onDev, themeMode, setThemeMode,
                 />
               </label>
               <button onClick={()=>{setShowDevInput(false);setDevCode("");setDevError(false);}} style={{ background:"none", border:"none", cursor:"pointer", fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", marginTop:4, padding:"6px", position:"relative", zIndex:2 }}>Cancel</button>
+              {devError && <div style={{ fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", marginTop:6 }}>Wrong code</div>}
             </div>
-          )}
-          {devError && <div style={{ fontSize:11, color:c.accent, fontFamily:"'DM Sans',sans-serif", marginTop:6 }}>Wrong code</div>}
-        </div>
+          </div>
+        )}
         <div style={{ ...a(0.42), textAlign:"center", marginTop:14, opacity:0.5 }}>
           <span style={{ fontSize:10, color:c.sub, letterSpacing:"0.06em", fontFamily:"'DM Sans',sans-serif" }}>{APP_VERSION}</span>
         </div>
@@ -6349,6 +6373,7 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
   const [openFaq, setOpenFaq] = useState(null);
   const [soundOn, setSoundOn] = useState(SESSION.soundEnabled);
   const [supportModal, setSupportModal] = useState(null); // {title, mailto}
+  const [legalModal, setLegalModal] = useState(null); // "tos" | "privacy"
   const c = TH[theme];
 
   const isPWA = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator?.standalone);
@@ -6409,6 +6434,83 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
 
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+      {/* v1.2.0 — Legal modal (ToS / Privacy). Honest placeholder copy until formal documents are drafted. */}
+      {legalModal && (
+        <div style={{ position:"absolute", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 16px" }}>
+          <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.55)", backdropFilter:"blur(4px)" }} onClick={()=>setLegalModal(null)}/>
+          <div style={{ position:"relative", zIndex:1, background:c.surface, borderRadius:20, animation:"scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both", width:"100%", maxWidth:440, maxHeight:"80vh", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+            <div style={{ padding:"20px 22px 14px", borderBottom:`1px solid ${c.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div>
+                <div style={{ fontSize:10, fontWeight:700, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.16em", textTransform:"uppercase" }}>Beta · placeholder</div>
+                <div style={{ fontSize:17, fontWeight:800, color:c.text, fontFamily:"'DM Sans',sans-serif", marginTop:3, letterSpacing:"-0.02em" }}>{legalModal==="tos" ? "Terms of Service" : "Privacy Policy"}</div>
+              </div>
+              <button onClick={()=>setLegalModal(null)} style={{ background:"none", border:"none", padding:6, cursor:"pointer", color:c.sub, fontSize:18, lineHeight:1 }}>✕</button>
+            </div>
+            <div style={{ padding:"16px 22px 20px", overflowY:"auto", fontSize:13.5, color:c.text, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6, letterSpacing:"-0.005em" }}>
+              {legalModal === "tos" ? (
+                <>
+                  <p style={{ marginBottom:12 }}>
+                    BKM is in beta. By using BKM you agree to the following while we draft a formal Terms of Service:
+                  </p>
+                  <ul style={{ paddingLeft:18, marginBottom:14, display:"flex", flexDirection:"column", gap:8 }}>
+                    <li>Post truthful, first-hand price information based on receipts, signage, or direct observation.</li>
+                    <li>Don't post promotional content for businesses without identifying as a merchant.</li>
+                    <li>Don't spam, harass, or abuse other users.</li>
+                    <li>BKM may remove content that violates these terms.</li>
+                    <li>Community-posted prices may change without notice and BKM does not guarantee accuracy.</li>
+                    <li>You retain ownership of content you post; BKM has a license to display it within the app.</li>
+                    <li>BKM is provided as-is during beta. Service may change or pause without notice.</li>
+                  </ul>
+                  <p style={{ marginBottom:12, color:c.sub, fontSize:12.5 }}>
+                    A formal Terms of Service will replace this placeholder.
+                  </p>
+                  <p style={{ color:c.sub, fontSize:12.5 }}>
+                    Questions? <a href="mailto:hello@bkm.qa" style={{ color:c.accent, textDecoration:"none", fontWeight:600 }}>hello@bkm.qa</a>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ marginBottom:12 }}>
+                    BKM is in beta. While we finalize a Privacy Policy aligned with Qatar's PDPL, here's what you should know:
+                  </p>
+                  <p style={{ marginBottom:6, fontWeight:700, color:c.text, fontSize:13 }}>What we collect</p>
+                  <ul style={{ paddingLeft:18, marginBottom:12, display:"flex", flexDirection:"column", gap:6 }}>
+                    <li>Phone number — for account creation and identity uniqueness.</li>
+                    <li>Username, avatar, and any profile info you provide.</li>
+                    <li>Posts you create and content you interact with (reveals, votes, bookmarks).</li>
+                    <li>Basic device and usage data needed for the app to work.</li>
+                  </ul>
+                  <p style={{ marginBottom:6, fontWeight:700, color:c.text, fontSize:13 }}>How we use it</p>
+                  <ul style={{ paddingLeft:18, marginBottom:12, display:"flex", flexDirection:"column", gap:6 }}>
+                    <li>To run the service — display the feed, sync your account, surface notifications.</li>
+                    <li>Posts and votes you make are visible to other users (that's the point of BKM).</li>
+                  </ul>
+                  <p style={{ marginBottom:6, fontWeight:700, color:c.text, fontSize:13 }}>What we don't do</p>
+                  <ul style={{ paddingLeft:18, marginBottom:12, display:"flex", flexDirection:"column", gap:6 }}>
+                    <li>We do not sell your data to third parties.</li>
+                    <li>We do not use your data for advertising.</li>
+                  </ul>
+                  <p style={{ marginBottom:6, fontWeight:700, color:c.text, fontSize:13 }}>Your rights</p>
+                  <ul style={{ paddingLeft:18, marginBottom:14, display:"flex", flexDirection:"column", gap:6 }}>
+                    <li>Request your data or account deletion any time.</li>
+                    <li>Contact us with any concerns.</li>
+                  </ul>
+                  <p style={{ marginBottom:6, color:c.sub, fontSize:12.5 }}>
+                    Data is stored on Firebase (Google Cloud). A formal Privacy Policy will replace this placeholder.
+                  </p>
+                  <p style={{ color:c.sub, fontSize:12.5 }}>
+                    Requests? <a href="mailto:hello@bkm.qa" style={{ color:c.accent, textDecoration:"none", fontWeight:600 }}>hello@bkm.qa</a>
+                  </p>
+                </>
+              )}
+            </div>
+            <div style={{ padding:"12px 22px 18px", borderTop:`1px solid ${c.border}` }}>
+              <button onClick={()=>setLegalModal(null)} style={{ width:"100%", padding:"12px 0", background:c.accent, border:"none", borderRadius:12, fontSize:13, fontWeight:700, color:"#FFFFFF", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", letterSpacing:"0.02em" }}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Support modal — appears in PWA mode where mailto often fails */}
       {supportModal && (
         <div style={{ position:"absolute", inset:0, zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 24px" }}>
@@ -6514,9 +6616,9 @@ function SettingsScreen({ theme, themeMode, setThemeMode, lang, setLang, notifSe
         {/* About */}
         <Section title="About"/>
         <div style={{ background:c.surface, borderTop:`1px solid ${c.border}`, borderBottom:`1px solid ${c.border}` }}>
-          <Row label="Terms of Service"  right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{}}/>
-          <Row label="Privacy Policy"    right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{}}/>
-          <Row label="Version" right={<span style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif" }}>Beta 0.1.0</span>} border={false}/>
+          <Row label="Terms of Service"  right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{ sfx.tap(); setLegalModal("tos"); }}/>
+          <Row label="Privacy Policy"    right={<span style={{ fontSize:12, color:c.sub }}>→</span>} onPress={()=>{ sfx.tap(); setLegalModal("privacy"); }}/>
+          <Row label="Version" right={<span style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>{APP_VERSION}</span>} border={false}/>
         </div>
 
         {/* Sign out */}
@@ -6982,14 +7084,17 @@ function CommunityDetail({ theme, lang, communityId, onBack, onPostInCommunity }
           </div>
         )}
 
-        {/* Posts placeholder — coming next session, only for members */}
+        {/* Posts feed — in development. For now, members see a transparent message about state. */}
         {isMember && (
           <div style={{ padding:"24px 20px", ...a(0.16) }}>
             <div style={{ fontSize:11, fontWeight:800, color:c.sub, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10, fontFamily:"'DM Sans',sans-serif" }}>Community Feed</div>
-            <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"30px 16px", textAlign:"center" }}>
-              <div style={{ fontSize:13, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:5 }}>Posts coming soon</div>
-              <div style={{ fontSize:11, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
-                Post-to-community is being wired up.<br/>Members will see a feed of community-only posts here.
+            <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, padding:"32px 20px", textAlign:"center" }}>
+              <div style={{ width:44, height:44, borderRadius:14, background:`${c.accent}18`, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+              </div>
+              <div style={{ fontSize:14, fontWeight:700, color:c.text, fontFamily:"'DM Sans',sans-serif", marginBottom:6, letterSpacing:"-0.01em" }}>This room is being built</div>
+              <div style={{ fontSize:12, color:c.sub, fontFamily:"'DM Sans',sans-serif", lineHeight:1.55, maxWidth:260, margin:"0 auto" }}>
+                You're joined. Community posting is in development — your membership will carry over when it launches.
               </div>
             </div>
           </div>
@@ -7995,7 +8100,8 @@ export default function BKMApp() {
               { key:"feed",        label:"Feed",   Ico:Ico.Home   },
               { key:"search",      label:"Search", Ico:Ico.Search },
               { key:"post",        label:"Post",   Ico:Ico.Plus, isCompose:true },
-              { key:"communities", label:"Rooms",  isRooms:true },
+              // v1.2.0 — Communities/Rooms tab hidden from nav until post-to-community flow is functional.
+              // { key:"communities", label:"Rooms",  isRooms:true },
               { key:"profile",     label:"You",    Ico:Ico.Person, badge: unreadCount },
             ].map(item => {
               const active = !pushedScreen && tab===item.key;
