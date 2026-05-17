@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.6 · sticky tabs animate · drop blue founder star";
+const APP_VERSION = "v1.1.7 · post fixes · skip TOS re-consent";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -3953,7 +3953,7 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
         </div>
       </div>
 
-      <div style={{ flex:1, overflowY:"auto" }}>
+      <div style={{ flex:1, overflowY:"auto", paddingBottom:160 }}>
         {/* Live preview */}
         <div style={{ padding:"12px 16px 4px", ...a(0.04) }}>
           <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", fontWeight:600, color:c.sub, marginBottom:8, display:"flex", alignItems:"center", gap:8 }}>
@@ -4119,77 +4119,86 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
             </button>
           </div>
 
-          <div style={{ display:"flex", flexDirection:"column", gap:items.length > 1 ? 12 : 8 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {items.map((item, idx) => {
               const isFirst = idx === 0;
               const isSingle = items.length === 1;
-              // Show was+now side-by-side ONLY for the first item in single-item deal mode.
-              // Multi-item posts use a single was-total field below the items list.
+              // v1.1.7 — was/now grid ONLY for the single-item deal mode.
+              // Tip mode + multi-item deal mode both use the compact one-line layout.
               const showWasInline = isFirst && isSingle && postType === "deal";
               return (
                 <div key={idx} style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                  {/* Item name — alone on its row, full width */}
-                  <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-                    <input
-                      value={item.n}
-                      onChange={e=>updateItem(idx, "n", e.target.value)}
-                      placeholder={isFirst ? "Item name (e.g. Chicken kabsa)" : "Item name"}
-                      style={{ flex:1, padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
-                      onFocus={e=>e.target.style.borderColor=c.gold}
-                      onBlur={e=>e.target.style.borderColor=c.border}
-                    />
-                    {items.length > 1 && (
-                      <button
-                        onClick={()=>removeItem(idx)}
-                        type="button"
-                        aria-label="Remove item"
-                        style={{ width:36, height:38, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Price row — was+now side by side if single deal, else just now */}
                   {showWasInline ? (
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
-                      <div style={{ position:"relative" }}>
-                        <input
-                          value={wasPrice}
-                          onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
-                          placeholder="0"
-                          inputMode="decimal"
-                          style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:600, outline:"none" }}
-                          onFocus={e=>e.target.style.borderColor=c.gold}
-                          onBlur={e=>e.target.style.borderColor=c.border}
-                        />
-                        <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase" }}>was</span>
+                    <>
+                      {/* Single-item deal: name on its own row, was/now grid below */}
+                      <input
+                        value={item.n}
+                        onChange={e=>updateItem(idx, "n", e.target.value)}
+                        placeholder="Item name (e.g. Chicken kabsa)"
+                        style={{ width:"100%", padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
+                        onFocus={e=>e.target.style.borderColor=c.gold}
+                        onBlur={e=>e.target.style.borderColor=c.border}
+                      />
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                        <div style={{ position:"relative" }}>
+                          <input
+                            value={wasPrice}
+                            onChange={e=>setWasPrice(e.target.value.replace(/[^0-9.]/g,""))}
+                            placeholder="0"
+                            inputMode="decimal"
+                            style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:600, outline:"none" }}
+                            onFocus={e=>e.target.style.borderColor=c.gold}
+                            onBlur={e=>e.target.style.borderColor=c.border}
+                          />
+                          <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, color:c.sub, letterSpacing:"0.06em", textTransform:"uppercase" }}>was</span>
+                        </div>
+                        <div style={{ position:"relative" }}>
+                          <input
+                            value={item.p}
+                            onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
+                            placeholder="0"
+                            inputMode="decimal"
+                            style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
+                            onFocus={e=>e.target.style.borderColor=c.gold}
+                            onBlur={e=>e.target.style.borderColor=c.gold}
+                          />
+                          <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase" }}>now</span>
+                        </div>
                       </div>
-                      <div style={{ position:"relative" }}>
+                    </>
+                  ) : (
+                    /* Tip mode OR multi-item deal: name + price + remove all on one row */
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <input
+                        value={item.n}
+                        onChange={e=>updateItem(idx, "n", e.target.value)}
+                        placeholder={isFirst ? "Item name" : "Another item"}
+                        style={{ flex:1, minWidth:0, padding:"11px 13px", background:c.surface, border:`1px solid ${c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, outline:"none" }}
+                        onFocus={e=>e.target.style.borderColor=c.gold}
+                        onBlur={e=>e.target.style.borderColor=c.border}
+                      />
+                      <div style={{ position:"relative", width:118, flexShrink:0 }}>
                         <input
                           value={item.p}
                           onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
-                          placeholder="0"
+                          placeholder={postType === "tip" ? "Price" : "0"}
                           inputMode="decimal"
-                          style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1.5px solid ${c.gold}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
+                          style={{ width:"100%", padding:"11px 42px 11px 12px", background:c.surface, border:`1.5px solid ${isFirst ? c.gold : c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
                           onFocus={e=>e.target.style.borderColor=c.gold}
-                          onBlur={e=>e.target.style.borderColor=c.gold}
+                          onBlur={e=>e.target.style.borderColor=isFirst?c.gold:c.border}
                         />
-                        <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase" }}>now</span>
+                        <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:600, color:c.sub, letterSpacing:"0.06em" }}>QAR</span>
                       </div>
-                    </div>
-                  ) : (
-                    <div style={{ position:"relative", maxWidth: items.length > 1 ? "none" : 220 }}>
-                      <input
-                        value={item.p}
-                        onChange={e=>updateItem(idx, "p", e.target.value.replace(/[^0-9.]/g, ""))}
-                        placeholder={postType === "tip" ? "How much is it?" : "Price"}
-                        inputMode="decimal"
-                        style={{ width:"100%", padding:"11px 42px 11px 13px", background:c.surface, border:`1.5px solid ${isFirst ? c.gold : c.border}`, borderRadius:11, color:c.text, fontFamily:"'DM Sans',sans-serif", fontSize:13.5, fontWeight:700, outline:"none" }}
-                        onFocus={e=>e.target.style.borderColor=c.gold}
-                        onBlur={e=>e.target.style.borderColor=isFirst?c.gold:c.border}
-                      />
-                      <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:600, color:c.sub }}>QAR</span>
+                      {items.length > 1 && (
+                        <button
+                          onClick={()=>removeItem(idx)}
+                          type="button"
+                          aria-label="Remove item"
+                          style={{ width:36, height:38, background:"transparent", border:`1px solid ${c.border}`, borderRadius:10, color:c.sub, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -4238,14 +4247,14 @@ function PostDeal({ theme, lang, onBack, onSubmit, prefill=null, onClearPrefill 
             </div>
           </div>
         )}
+      </div>
 
-        {/* Submit */}
-        <div style={{ padding:"12px 16px 24px", position:"sticky", bottom:0, background:`linear-gradient(180deg, ${c.bg}00 0%, ${c.bg} 30%)` }}>
-          <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"15px 18px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:14, fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 8px 24px ${c.gold}33` : "none", display:"flex", alignItems:"center", justifyContent:"space-between", transition:"all 0.18s" }}>
-            <span>Share find</span>
-            {ready && <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", background:"rgba(0,0,0,0.25)", borderRadius:5, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:800 }}>+3◆</span>}
-          </button>
-        </div>
+      {/* v1.1.7 — Submit button floats above the bottom nav so it isn't buried by it */}
+      <div style={{ position:"absolute", bottom:84, left:0, right:0, padding:"0 16px", zIndex:30, pointerEvents:"none" }}>
+        <button onClick={handleSubmit} disabled={!ready} style={{ pointerEvents:"auto", width:"100%", padding:"15px 18px", background: ready ? `linear-gradient(135deg, ${c.gold}, ${c.accent})` : c.surface, color: ready ? c.btnText : c.sub, border: ready ? "none" : `1px solid ${c.border}`, borderRadius:14, fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, letterSpacing:"-0.015em", cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? `0 8px 28px ${c.gold}44, 0 2px 12px rgba(0,0,0,0.4)` : `0 2px 8px rgba(0,0,0,0.3)`, display:"flex", alignItems:"center", justifyContent:"space-between", transition:"all 0.18s" }}>
+          <span>Share find</span>
+          {ready && <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", background:"rgba(0,0,0,0.25)", borderRadius:5, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:800 }}>+3◆</span>}
+        </button>
       </div>
     </div>
   );
@@ -7928,11 +7937,30 @@ export default function BKMApp() {
             if (fbAuth.currentUser) fbUpdateUserDoc(fbAuth.currentUser.uid, { phone: normalizePhone(phone), email }).catch(()=>{});
             go("otp");
           }} onBack={()=>go("opening")} onRegister={()=>go("register")}/>}
-          {screen==="otp"           && <OTP      theme={theme} lang={lang} onVerify={()=>{
-            // Decide where to route based on the loaded user doc (mirrored on SESSION)
-            if (!SESSION.tosAccepted) go("consent");
-            else if (!SESSION.profileSetup) go("profile");
-            else go("feed");
+          {screen==="otp"           && <OTP      theme={theme} lang={lang} onVerify={async ()=>{
+            // v1.1.7 — query the user doc directly to avoid a race against the auth listener's async hydration.
+            // Without this, a fast OTP verify could read a stale SESSION.tosAccepted and re-show the consent
+            // screen to users who already accepted on a prior session.
+            const u = fbAuth.currentUser;
+            if (!u) { go("consent"); return; }
+            try {
+              const doc = await fbGetUserDoc(u.uid);
+              if (doc?.profileSetup && doc?.tosAccepted) {
+                SESSION.tosAccepted   = true;
+                SESSION.profileSetup  = true;
+                go("feed");
+              } else if (doc?.tosAccepted) {
+                SESSION.tosAccepted   = true;
+                go("profile");
+              } else {
+                go("consent");
+              }
+            } catch {
+              // If the doc read fails, fall back to the cached SESSION
+              if (!SESSION.tosAccepted) go("consent");
+              else if (!SESSION.profileSetup) go("profile");
+              else go("feed");
+            }
           }} onBack={()=>go("register")}/>}
           {screen==="consent"       && <BetaConsent theme={theme} onAccept={async ()=>{
             SESSION.tosAccepted=true;
