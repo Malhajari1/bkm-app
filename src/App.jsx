@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.8 · per-item was/now · auto savings";
+const APP_VERSION = "v1.1.9 · Proposal A · X% OFF · per-item was→now";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -2514,9 +2514,9 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           border: `1px solid ${c.border}`,
           borderRadius: 18,
           padding: "13px 13px",
-          display: "grid",
-          gridTemplateColumns: "40px 1fr",
-          gap: 11,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
           cursor: effectiveClaimed ? "pointer" : "default",
           transition: "border-color 0.18s, transform 0.12s",
         }}
@@ -2543,19 +2543,16 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
           </div>
         )}
 
-        {/* Avatar with tier ring (existing Avatar component does this) */}
-        <button
-          onClick={(e)=>{ e.stopPropagation(); onUserTap && onUserTap(deal.user); }}
-          style={{ background:"none", border:"none", padding:0, cursor:"pointer", width:40, height:40, flexShrink:0 }}
-        >
-          <Avatar user={deal.user} size={36}/>
-        </button>
-
-        {/* Card body */}
-        <div style={{ display:"flex", flexDirection:"column", gap:7, minWidth:0 }}>
-          {/* Meta row — username/tier OR post#/time depending on context */}
+        {/* v1.1.9 — Top row: avatar + byline meta on one line, full-width content below */}
+        <div style={{ display:"flex", alignItems:"center", gap:11 }}>
+          <button
+            onClick={(e)=>{ e.stopPropagation(); onUserTap && onUserTap(deal.user); }}
+            style={{ background:"none", border:"none", padding:0, cursor:"pointer", width:40, height:40, flexShrink:0 }}
+          >
+            <Avatar user={deal.user} size={36}/>
+          </button>
           {displayMode === "profile" ? (
-            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em", flex:1, minWidth:0 }}>
               {postNumber != null && (
                 <span style={{ color:c.gold, fontFamily:"'DM Sans',sans-serif", fontWeight:700, letterSpacing:"-0.01em" }}>#{postNumber}</span>
               )}
@@ -2578,7 +2575,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               </span>
             </div>
           ) : (
-            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11.5, color:c.text2 || c.sub, fontFamily:"'DM Sans',sans-serif", letterSpacing:"-0.005em", flex:1, minWidth:0 }}>
               <span style={{ color:c.text, fontWeight:600 }}>@{deal.user.username || "user"}</span>
               {isFounder && (
                 <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:13, height:13, background:c.gold, color:c.bg, borderRadius:"50%", fontSize:8, fontWeight:800, lineHeight:1 }}>✓</span>
@@ -2587,7 +2584,10 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               <span style={{ color:c.sub, fontFamily:"'DM Sans',sans-serif", fontSize:10.5 }}>tier {rank}</span>
             </div>
           )}
+        </div>
 
+        {/* Card body — full width below byline */}
+        <div style={{ display:"flex", flexDirection:"column", gap:8, minWidth:0 }}>
           {/* Title — full text, never clamped */}
           <div style={{
             fontWeight: 600,
@@ -2625,11 +2625,11 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 {deal.place}
               </span>
             )}
-            {/* DEAL pill — visible even on locked cards so users know it's a deal-type post */}
+            {/* v1.1.9 — Deal pill: drops the minus, uses retail "X% OFF" framing */}
             {isDealType && (
               <span style={{
                 display:"inline-flex", alignItems:"center", gap:4,
-                padding: "2px 6px",
+                padding: "2px 7px",
                 background: `${c.positive}22`,
                 border: `1px solid ${c.positive}55`,
                 borderRadius: 4,
@@ -2639,8 +2639,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                 color: c.positive,
                 letterSpacing: "0.14em",
               }}>
-                <span style={{ fontWeight:900, fontSize:9 }}>↓</span>
-                DEAL{savePct > 0 ? ` · ${savePct}%` : ""}
+                {savePct > 0 ? `${savePct}% OFF` : "DEAL"}
               </span>
             )}
             <span style={{
@@ -2704,19 +2703,20 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
               </span>
             </button>
           ) : (
-            // ─── REVEALED ───
+            // ─── REVEALED — v1.1.9 Proposal A ───
+            // Per-item was→now QAR · X% off. Total row only on multi-item. Italic Saves on deals.
+            // Tip mode: same grammar minus the was/arrow/pct/saves.
             <div style={{
               marginTop: 3,
-              padding: "10px 11px",
+              padding: "11px 12px",
               background: `linear-gradient(135deg, ${c.gold}1A, ${c.accent}0F)`,
-              borderRadius: 10,
-              display: "grid",
-              gridTemplateColumns: "1fr auto",
-              gap: 9,
-              alignItems: "flex-start",
+              borderRadius: 12,
               border: `1px solid ${c.gold}38`,
               position: "relative",
               overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              gap: 9,
               animation: revealAnim ? "priceReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both" : "none",
               boxShadow: revealAnim ? `0 0 0 2px ${c.gold}55, 0 8px 24px ${c.gold}33` : "none",
               transition: "box-shadow 0.4s ease",
@@ -2729,7 +2729,7 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   pointerEvents: "none",
                   zIndex: 1,
                   overflow: "hidden",
-                  borderRadius: 10,
+                  borderRadius: 12,
                 }}>
                   <div style={{
                     position: "absolute",
@@ -2740,7 +2740,9 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   }}/>
                 </div>
               )}
-              <div style={{ display:"flex", alignItems:"flex-start", gap:9, minWidth:0, position:"relative", zIndex:2 }}>
+
+              {/* Head: lock icon + label + count + vote thumbs */}
+              <div style={{ display:"flex", alignItems:"center", gap:9, position:"relative", zIndex:2 }}>
                 <div style={{
                   width:24, height:24,
                   display:"flex", alignItems:"center", justifyContent:"center",
@@ -2748,150 +2750,127 @@ function DealCard({ deal, c, theme, claimed, onClaim, vote, onVote, bookmarked, 
                   color: c.bg,
                   borderRadius: 7,
                   flexShrink: 0,
-                  marginTop: 1,
                 }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                     <rect x="3" y="11" width="18" height="11" rx="2"/>
                     <path d="M7 11V7a5 5 0 019.9-1"/>
                   </svg>
                 </div>
-                <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0, flex:1 }}>
-                  {/* Label row */}
-                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:8, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
-                    <span>{isOwn ? "Your price" : (isDeal ? "Deal · Revealed" : "Revealed")}</span>
-                    {items.length > 1 && (
-                      <span style={{ color:c.sub, fontWeight:600 }}>· {items.length} items</span>
-                    )}
-                  </div>
-
-                  {items.length <= 1 ? (
-                    // ─── Single item: name + price ALL on the same line ───
-                    <>
-                      <div style={{
-                        display: "flex",
-                        alignItems: "baseline",
-                        gap: 7,
-                        flexWrap: "wrap",
-                        marginTop: 2,
-                        fontFamily: "'DM Sans',sans-serif",
-                      }}>
-                        <span style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: c.text,
-                          letterSpacing: "-0.015em",
-                          wordBreak: "break-word",
-                        }}>
-                          {firstItem.n || deal.subject || "Item"}
-                        </span>
-                        <span style={{ color: c.sub, fontSize: 11 }}>·</span>
-                        <span style={{
-                          fontSize: 17,
-                          fontWeight: 800,
-                          color: c.text,
-                          letterSpacing: "-0.025em",
-                          lineHeight: 1,
-                        }}>
-                          {nowNum > 0 ? nowNum : "—"}
-                          <span style={{ fontSize: 10, color: c.sub, marginLeft: 3, fontWeight: 500 }}>QAR</span>
-                        </span>
-                        {isDeal && (
-                          <>
-                            <span style={{ fontSize: 10.5, color: c.sub, textDecoration: "line-through", fontWeight: 500 }}>was {wasNum}</span>
-                            <span style={{ fontSize: 9, fontWeight: 800, color: c.positive, background: `${c.positive}24`, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
-                              −{savePct}%
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      {isDeal && saveAmt > 0 && (
-                        <div style={{ fontFamily: "'Newsreader',Georgia,serif", fontStyle: "italic", fontSize: 10.5, color: c.positive, marginTop: 2, fontWeight: 500 }}>
-                          Saves {saveAmt.toFixed(0)} QAR
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    // ─── Multi-item: itemized list ───
-                    <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:2 }}>
-                      {items.slice(0, 4).map((it, i) => (
-                        <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:8, fontFamily:"'DM Sans',sans-serif", fontSize:11.5, alignItems:"baseline" }}>
-                          <span style={{ color:c.text, flex:1, fontWeight:500, wordBreak:"break-word" }}>
-                            <span style={{ color:c.sub, marginRight:5 }}>·</span>{it.n || `Item ${i+1}`}
-                          </span>
-                          <span style={{ color:c.text, fontWeight:700, flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>
-                            {it.p ?? "—"}<span style={{ fontSize:9, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span>
-                          </span>
-                        </div>
-                      ))}
-                      {items.length > 4 && (
-                        <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.sub, marginTop:1 }}>
-                          + {items.length - 4} more in post
-                        </div>
-                      )}
-                      {/* Total + was/save for deals */}
-                      {(() => {
-                        const total = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
-                        return total > 0 ? (
-                          <>
-                            <div style={{ marginTop:4, paddingTop:4, borderTop:`1px dashed ${c.gold}55`, display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, flexWrap:"wrap", gap:6 }}>
-                              <span style={{ color:c.gold, letterSpacing:"0.06em", textTransform:"uppercase", fontSize:9 }}>Total</span>
-                              <span style={{ display:"flex", alignItems:"baseline", gap:6, flexWrap:"wrap" }}>
-                                {isDeal && (
-                                  <span style={{ fontSize:10, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>was {wasNum}</span>
-                                )}
-                                <span style={{ color:c.text, letterSpacing:"-0.02em" }}>{total.toFixed(0)}<span style={{ fontSize:9, color:c.sub, marginLeft:2 }}>QAR</span></span>
-                                {isDeal && (
-                                  <span style={{ fontSize:8.5, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"2px 5px", borderRadius:3, letterSpacing:"0.04em" }}>−{savePct}%</span>
-                                )}
-                              </span>
-                            </div>
-                            {isDeal && saveAmt > 0 && (
-                              <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.positive, marginTop:3, fontWeight:500, textAlign:"right" }}>
-                                Saves {saveAmt.toFixed(0)} QAR
-                              </div>
-                            )}
-                          </>
-                        ) : null;
-                      })()}
-                    </div>
+                <div style={{ display:"flex", alignItems:"baseline", gap:6, flex:1, minWidth:0 }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontWeight:800 }}>
+                    {isOwn ? "Your price" : (isDealType ? "Deal · Revealed" : "Revealed")}
+                  </span>
+                  {items.length > 1 && (
+                    <span style={{ fontSize:9, color:c.sub, fontWeight:600, fontFamily:"'DM Sans',sans-serif", letterSpacing:"0.06em" }}>· {items.length} items</span>
                   )}
                 </div>
+                {/* Vote thumbs — top right of head */}
+                <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+                  <button
+                    onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("up"); }}
+                    disabled={!canVote}
+                    style={{
+                      width:28, height:28,
+                      background: vote==="up" ? c.positive : (c.surface3 || c.muted),
+                      border: `1px solid ${vote==="up" ? c.positive : c.border}`,
+                      borderRadius: 7,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      cursor: canVote ? "pointer" : "default",
+                      color: vote==="up" ? c.bg : (c.text2 || c.text),
+                      transform: upAnim ? "scale(1.15)" : "scale(1)",
+                      transition: "all 0.18s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                    }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
+                  </button>
+                  <button
+                    onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("down"); }}
+                    disabled={!canVote}
+                    style={{
+                      width:28, height:28,
+                      background: vote==="down" ? c.negative : (c.surface3 || c.muted),
+                      border: `1px solid ${vote==="down" ? c.negative : c.border}`,
+                      borderRadius: 7,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      cursor: canVote ? "pointer" : "default",
+                      color: vote==="down" ? c.bg : (c.text2 || c.text),
+                      transform: downAnim ? "scale(1.15)" : "scale(1)",
+                      transition: "all 0.18s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                    }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ transform:"scaleY(-1)" }}><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
+                  </button>
+                </div>
               </div>
-              {/* Vote thumbs (inline after reveal) */}
-              <div style={{ display:"flex", gap:4, flexShrink:0, position:"relative", zIndex:2 }}>
-                <button
-                  onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("up"); }}
-                  disabled={!canVote}
-                  style={{
-                    width:30, height:30,
-                    background: vote==="up" ? c.positive : (c.surface3 || c.muted),
-                    border: `1px solid ${vote==="up" ? c.positive : c.border}`,
-                    borderRadius: 8,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    cursor: canVote ? "pointer" : "default",
-                    color: vote==="up" ? c.bg : (c.text2 || c.text),
-                    transform: upAnim ? "scale(1.15)" : "scale(1)",
-                    transition: "all 0.18s cubic-bezier(0.34, 1.5, 0.64, 1)",
-                  }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
-                </button>
-                <button
-                  onClick={(e)=>{ e.stopPropagation(); if (canVote) handleVote("down"); }}
-                  disabled={!canVote}
-                  style={{
-                    width:30, height:30,
-                    background: vote==="down" ? c.negative : (c.surface3 || c.muted),
-                    border: `1px solid ${vote==="down" ? c.negative : c.border}`,
-                    borderRadius: 8,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    cursor: canVote ? "pointer" : "default",
-                    color: vote==="down" ? c.bg : (c.text2 || c.text),
-                    transform: downAnim ? "scale(1.15)" : "scale(1)",
-                    transition: "all 0.18s cubic-bezier(0.34, 1.5, 0.64, 1)",
-                  }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ transform:"scaleY(-1)" }}><path d="M9 22h11l3-10v-2h-7l1.5-5.5-.5-1L9 11v11zM2 22h5V11H2v11z"/></svg>
-                </button>
+
+              {/* Items list — each row uses identical typography */}
+              <div style={{ display:"flex", flexDirection:"column", gap:7, position:"relative", zIndex:2 }}>
+                {items.slice(0, 5).map((it, i) => {
+                  const itemNow = Number(it.p) || 0;
+                  const explicitItemWas = Number(it.w) || 0;
+                  // Legacy fallback: single-item deals without per-item was can use deal.wasPrice
+                  const itemWas = explicitItemWas > 0 ? explicitItemWas
+                                : (i === 0 && items.length === 1 && isDealType && wasNum > 0 ? wasNum : 0);
+                  const hasWas = isDealType && itemWas > itemNow && itemWas > 0;
+                  const itemPct = hasWas ? Math.round(((itemWas - itemNow) / itemWas) * 100) : 0;
+                  return (
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:9, alignItems:"baseline", fontFamily:"'DM Sans',sans-serif" }}>
+                      <span style={{ color:c.text, flex:1, fontWeight:500, wordBreak:"break-word", fontSize:12.5, letterSpacing:"-0.01em", lineHeight:1.3 }}>
+                        {it.n || `Item ${i+1}`}
+                      </span>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:5, flexShrink:0 }}>
+                        {hasWas && (
+                          <>
+                            <span style={{ fontSize:10.5, color:c.sub, textDecoration:"line-through", fontWeight:500 }}>{itemWas}</span>
+                            <span style={{ fontSize:9, color:c.sub }}>→</span>
+                          </>
+                        )}
+                        <span style={{ fontSize:13.5, fontWeight:800, color:c.text, letterSpacing:"-0.015em" }}>
+                          {itemNow}<span style={{ fontSize:9, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span>
+                        </span>
+                        {hasWas && itemPct > 0 && (
+                          <span style={{ fontSize:8.5, fontWeight:800, color:c.positive, background:`${c.positive}22`, padding:"2px 5px", borderRadius:3, letterSpacing:"0.06em", textTransform:"uppercase" }}>
+                            {itemPct}% off
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {items.length > 5 && (
+                  <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:10.5, color:c.sub, marginTop:1 }}>
+                    + {items.length - 5} more
+                  </div>
+                )}
               </div>
+
+              {/* Total row — only when more than one item */}
+              {items.length > 1 && (
+                <div style={{ paddingTop:8, borderTop:`1px dashed ${c.gold}55`, display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:6, position:"relative", zIndex:2 }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9.5, fontWeight:800, color:c.gold, letterSpacing:"0.16em", textTransform:"uppercase" }}>Total</span>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:5, flexShrink:0 }}>
+                    {isDeal && wasNum > 0 && (
+                      <>
+                        <span style={{ fontSize:11, color:c.sub, textDecoration:"line-through", fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>{wasNum}</span>
+                        <span style={{ fontSize:10, color:c.sub }}>→</span>
+                      </>
+                    )}
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:16, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>
+                      {nowTotal.toFixed(0)}<span style={{ fontSize:10, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span>
+                    </span>
+                    {isDeal && savePct > 0 && (
+                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:800, color:c.positive, background:`${c.positive}22`, padding:"2.5px 6px", borderRadius:3, letterSpacing:"0.06em", textTransform:"uppercase" }}>
+                        {savePct}% off
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Saves line — deals only */}
+              {isDeal && saveAmt > 0 && (
+                <div style={{ fontFamily:"'Newsreader',Georgia,serif", fontStyle:"italic", fontSize:11.5, color:c.positive, fontWeight:500, textAlign:"right", position:"relative", zIndex:2 }}>
+                  Saves {saveAmt.toFixed(0)} QAR{items.length > 1 ? " overall" : ""}
+                </div>
+              )}
             </div>
           )}
 
@@ -5473,11 +5452,11 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere, vote, onVote, bookm
           </div>
 
           <div style={{ background:`linear-gradient(135deg, ${c.gold}1A, ${c.accent}0F)`, border:`1px solid ${c.gold}38`, borderRadius:14, padding:"14px 14px 12px", position:"relative", overflow:"hidden" }}>
-            {/* Find head: REVEALED label + DEAL/TIP pill + source pill */}
+            {/* Head: REVEALED label + DEAL/TIP pill + source pill */}
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:8 }}>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:7, fontSize:8.5, fontWeight:800, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontFamily:"'DM Sans',sans-serif" }}>
-                <span style={{ width:22, height:22, background:c.gold, color:c.bg, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:7, fontSize:9.5, fontWeight:800, letterSpacing:"0.18em", textTransform:"uppercase", color:c.gold, fontFamily:"'DM Sans',sans-serif" }}>
+                <span style={{ width:24, height:24, background:c.gold, color:c.bg, borderRadius:7, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>
                 </span>
                 Revealed
               </div>
@@ -5496,65 +5475,72 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere, vote, onVote, bookm
               </div>
             </div>
 
-            {/* Items list */}
-            {items.length <= 1 ? (
-              // Single item — name + price on same baseline
-              <div style={{ display:"flex", alignItems:"baseline", gap:10, flexWrap:"wrap", padding:"4px 0 6px" }}>
-                <span style={{ fontSize:15, fontWeight:600, color:c.text, letterSpacing:"-0.01em", fontFamily:"'DM Sans',sans-serif", wordBreak:"break-word" }}>
-                  {firstItem.n || deal.subject || "Item"}
-                </span>
-                <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:22, fontWeight:800, color:c.text, letterSpacing:"-0.03em", lineHeight:1 }}>
-                  {Number(firstItem.p) || 0}<span style={{ fontSize:11, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
-                </span>
-                {isDeal && (
-                  <>
-                    <span style={{ fontSize:11.5, color:c.sub, textDecoration:"line-through", fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>was {wasNum}</span>
-                    <span style={{ fontSize:10, fontWeight:800, color:c.positive, background:`${c.positive}24`, padding:"2px 6px", borderRadius:4, letterSpacing:"0.04em", fontFamily:"'DM Sans',sans-serif" }}>−{savePct}%</span>
-                  </>
-                )}
-              </div>
-            ) : (
-              // Multi-item list
-              <div>
-                {items.map((it, i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:12, padding:"8px 0", borderBottom: i < items.length - 1 ? `1px solid rgba(224,163,62,0.16)` : "none" }}>
-                    <span style={{ fontSize:14, fontWeight:600, color:c.text, letterSpacing:"-0.01em", flex:1, wordBreak:"break-word", fontFamily:"'DM Sans',sans-serif" }}>
+            {/* v1.1.9 — Items list (Proposal A grammar: per-item was→now·X% off) */}
+            <div>
+              {items.map((it, i) => {
+                const itemNow = Number(it.p) || 0;
+                const explicitItemWas = Number(it.w) || 0;
+                const itemWas = explicitItemWas > 0 ? explicitItemWas
+                              : (i === 0 && items.length === 1 && isDealType && wasNum > 0 ? wasNum : 0);
+                const hasWas = isDealType && itemWas > itemNow && itemWas > 0;
+                const itemPct = hasWas ? Math.round(((itemWas - itemNow) / itemWas) * 100) : 0;
+                return (
+                  <div key={i} style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:11, padding:"10px 0", borderBottom: i < items.length - 1 ? `1px solid rgba(224,163,62,0.16)` : "none" }}>
+                    <span style={{ fontSize:15, fontWeight:600, color:c.text, letterSpacing:"-0.01em", flex:1, wordBreak:"break-word", fontFamily:"'DM Sans',sans-serif" }}>
                       {it.n || `Item ${i+1}`}
                     </span>
-                    <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:14, fontWeight:700, color:c.text, whiteSpace:"nowrap", letterSpacing:"-0.015em" }}>
-                      {Number(it.p) || 0}<span style={{ fontSize:9.5, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
-                    </span>
-                  </div>
-                ))}
-
-                {/* Totals */}
-                <div style={{ marginTop:12, paddingTop:12, borderTop:`1.5px dashed rgba(224,163,62,0.32)`, display:"flex", flexDirection:"column", gap:5 }}>
-                  {isDeal && (
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>
-                      <span style={{ color:c.sub, fontWeight:500, textDecoration:"line-through" }}>Was</span>
-                      <span style={{ color:c.sub, textDecoration:"line-through", fontWeight:500 }}>{wasNum} QAR</span>
+                    <div style={{ display:"flex", alignItems:"baseline", gap:7, flexShrink:0 }}>
+                      {hasWas && (
+                        <>
+                          <span style={{ fontSize:12, color:c.sub, textDecoration:"line-through", fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>{itemWas}</span>
+                          <span style={{ fontSize:10, color:c.sub }}>→</span>
+                        </>
+                      )}
+                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:17, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>
+                        {itemNow}<span style={{ fontSize:10, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span>
+                      </span>
+                      {hasWas && itemPct > 0 && (
+                        <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:800, color:c.positive, background:`${c.positive}22`, padding:"3px 7px", borderRadius:4, letterSpacing:"0.06em", textTransform:"uppercase" }}>
+                          {itemPct}% off
+                        </span>
+                      )}
                     </div>
-                  )}
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif" }}>
-                    <span style={{ fontWeight:700, color:c.text, fontSize:13 }}>Total now</span>
-                    <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:22, fontWeight:800, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
-                      {nowTotal.toFixed(0)}<span style={{ fontSize:11, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
-                    </span>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+
+            {/* Multi-item TIP total — no was/pct */}
+            {!isDeal && items.length > 1 && (
+              <div style={{ marginTop:12, paddingTop:12, borderTop:`1.5px dashed rgba(224,163,62,0.32)`, display:"flex", justifyContent:"space-between", alignItems:"baseline", fontFamily:"'DM Sans',sans-serif" }}>
+                <span style={{ fontSize:11, fontWeight:800, color:c.gold, letterSpacing:"0.16em", textTransform:"uppercase" }}>Total</span>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:800, color:c.text, letterSpacing:"-0.025em", lineHeight:1 }}>
+                  {nowTotal.toFixed(0)}<span style={{ fontSize:11, color:c.sub, marginLeft:3, fontWeight:500 }}>QAR</span>
+                </span>
               </div>
             )}
 
-            {/* Save strip — green band for deals */}
+            {/* HERO X% OFF strip — only for deals with savings */}
             {isDeal && saveAmt > 0 && (
-              <div style={{ marginTop:12, padding:"10px 13px", background:`${c.positive}26`, border:`1px solid ${c.positive}72`, borderRadius:11, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                <span style={{ display:"flex", alignItems:"center", gap:7, fontSize:11, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase", color:c.positive, fontFamily:"'DM Sans',sans-serif" }}>
-                  <span style={{ width:18, height:18, background:c.positive, color:"#FFFFFF", borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:11 }}>↓</span>
-                  You save
-                </span>
-                <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:15, fontWeight:800, color:c.positive, letterSpacing:"-0.02em" }}>
-                  {saveAmt.toFixed(0)} QAR · {savePct}%
-                </span>
+              <div style={{ marginTop:14, padding:"14px 16px", background:`${c.positive}1F`, border:`1px solid ${c.positive}66`, borderRadius:12 }}>
+                {/* Giant pct hero */}
+                <div style={{ display:"flex", alignItems:"baseline", gap:6, fontFamily:"'DM Sans',sans-serif" }}>
+                  <span style={{ fontSize:38, fontWeight:800, color:c.positive, letterSpacing:"-0.035em", lineHeight:0.95 }}>
+                    {savePct}<span style={{ fontSize:16, fontWeight:800, letterSpacing:"0.04em" }}>%</span>
+                  </span>
+                  <span style={{ fontSize:15, fontWeight:800, color:c.positive, letterSpacing:"0.12em", textTransform:"uppercase" }}>off</span>
+                </div>
+                {/* Bottom: You save X QAR | was → total */}
+                <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:10, paddingTop:10, borderTop:`1px dashed ${c.positive}55`, gap:10, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>
+                  <span style={{ fontWeight:700, letterSpacing:"0.04em", color:c.text2 || c.sub, textTransform:"uppercase" }}>
+                    You save
+                    <span style={{ fontSize:14, color:c.positive, fontWeight:800, marginLeft:6, letterSpacing:"-0.01em", textTransform:"none" }}>{saveAmt.toFixed(0)} QAR</span>
+                  </span>
+                  <span style={{ display:"flex", alignItems:"baseline", gap:7, fontWeight:500, color:c.sub }}>
+                    <span style={{ textDecoration:"line-through" }}>was {wasNum}</span>
+                    <span style={{ fontSize:16, fontWeight:800, color:c.text, letterSpacing:"-0.02em" }}>{nowTotal.toFixed(0)}<span style={{ fontSize:10, color:c.sub, marginLeft:2, fontWeight:500 }}>QAR</span></span>
+                  </span>
+                </div>
               </div>
             )}
           </div>
