@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.2.0 · trust-leak cleanup · dev-press, ToS, Privacy, Rooms hidden";
+const APP_VERSION = "v1.2.0 · trust-leak cleanup · dev-press · ToS & Privacy modals";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -8100,8 +8100,7 @@ export default function BKMApp() {
               { key:"feed",        label:"Feed",   Ico:Ico.Home   },
               { key:"search",      label:"Search", Ico:Ico.Search },
               { key:"post",        label:"Post",   Ico:Ico.Plus, isCompose:true },
-              // v1.2.0 — Communities/Rooms tab hidden from nav until post-to-community flow is functional.
-              // { key:"communities", label:"Rooms",  isRooms:true },
+              { key:"communities", label:"Rooms",  isRooms:true },
               { key:"profile",     label:"You",    Ico:Ico.Person, badge: unreadCount },
             ].map(item => {
               const active = !pushedScreen && tab===item.key;
