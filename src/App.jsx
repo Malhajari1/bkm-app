@@ -606,7 +606,7 @@ const fbSubscribeCommunityMembers = (cid, cb) => onSnapshot(collection(fbDb, "co
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Bumped every time we ship. Shows on the opening screen so SWISS knows which build is live.
-const APP_VERSION = "v1.1.9 · Proposal A · X% OFF · per-item was→now";
+const APP_VERSION = "v1.1.9 · Proposal A · X% OFF · expand-crash fix";
 
 // Simple error boundary so a render crash doesn't leave a blank screen
 class ErrorBoundary extends React.Component {
@@ -5287,7 +5287,8 @@ function PostDetail({ deal, theme, lang, onBack, onPostHere, vote, onVote, bookm
   const firstItem = items[0] || { n: deal.subject || "Find", p: 0 };
   const nowTotal  = items.reduce((s, it) => s + (Number(it.p) || 0), 0);
   const wasNum    = Number(deal.wasPrice) || 0;
-  const isDeal    = deal.postType === "deal" && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal;
+  const isDealType = deal.postType === "deal";
+  const isDeal    = isDealType && wasNum > 0 && nowTotal > 0 && wasNum > nowTotal;
   const savePct   = isDeal ? Math.round(((wasNum - nowTotal) / wasNum) * 100) : 0;
   const saveAmt   = isDeal ? (wasNum - nowTotal) : 0;
 
